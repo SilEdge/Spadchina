@@ -100,13 +100,16 @@ type UnreadResponse struct {
 
 type Duel struct {
 	ID              int            `json:"id"`
+	ChallengerID    int            `json:"challenger_id"`
 	Challenger      string         `json:"challenger"`
+	OpponentID      int            `json:"opponent_id"`
 	Opponent        string         `json:"opponent"`
 	Status          string         `json:"status"`
 	QuestionSet     int            `json:"question_set"`
 	Questions       []DuelQuestion `json:"questions"`
 	ChallengerScore int            `json:"challenger_score"`
 	OpponentScore   int            `json:"opponent_score"`
+	WinnerID        int            `json:"winner_id"`
 	Winner          string         `json:"winner"`
 	CreatedAt       string         `json:"created_at"`
 	UpdatedAt       string         `json:"updated_at"`

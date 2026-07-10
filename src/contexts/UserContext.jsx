@@ -2,10 +2,23 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '../api.js';
 
 const UserContext = createContext(null);
+const TOKEN_KEY = 'cultcode_token';
+
+function readStoredToken() {
+  const tabToken = sessionStorage.getItem(TOKEN_KEY);
+  if (tabToken) return tabToken;
+
+  const legacyToken = localStorage.getItem(TOKEN_KEY);
+  if (legacyToken) {
+    sessionStorage.setItem(TOKEN_KEY, legacyToken);
+    localStorage.removeItem(TOKEN_KEY);
+  }
+  return legacyToken;
+}
 
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('cultcode_token'));
+  const [token, setToken] = useState(readStoredToken);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -14,7 +27,8 @@ export function UserProvider({ children }) {
       api.me()
         .then(setUser)
         .catch(() => {
-          localStorage.removeItem('cultcode_token');
+          sessionStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(TOKEN_KEY);
           setToken(null);
           setUser(null);
         })
@@ -28,7 +42,8 @@ export function UserProvider({ children }) {
     setError(null);
     try {
       const data = await api.login(email, password);
-      localStorage.setItem('cultcode_token', data.token);
+      sessionStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.removeItem(TOKEN_KEY);
       setToken(data.token);
       setUser(data.user);
       return true;
@@ -42,7 +57,8 @@ export function UserProvider({ children }) {
     setError(null);
     try {
       const data = await api.register(name, email, password);
-      localStorage.setItem('cultcode_token', data.token);
+      sessionStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.removeItem(TOKEN_KEY);
       setToken(data.token);
       setUser(data.user);
       return true;
@@ -53,7 +69,8 @@ export function UserProvider({ children }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('cultcode_token');
+    sessionStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
     setError(null);

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import { api } from '../api.js';
 import { useUser } from '../contexts/UserContext.jsx';
 
@@ -16,13 +15,10 @@ export default function Chat({ initialPeer, onLoginOpen }) {
   const [voiceLanguage, setVoiceLanguage] = useState('ru-RU');
   const listRef = useRef(null);
   const transcriptBaseRef = useRef('');
-  const {
-    interimTranscript,
-    finalTranscript,
-    listening,
-    resetTranscript,
-    browserSupportsSpeechRecognition,
-  } = useSpeechRecognition();
+  const recognitionRef = useRef(null);
+  const [listening, setListening] = useState(false);
+  const browserSupportsSpeechRecognition = typeof window !== 'undefined'
+    && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => item.username === activePeer),
@@ -101,12 +97,9 @@ export default function Chat({ initialPeer, onLoginOpen }) {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    if (!listening && !finalTranscript) return;
-    const spokenText = `${finalTranscript} ${interimTranscript}`.trim();
-    const nextText = `${transcriptBaseRef.current} ${spokenText}`.trim();
-    setDraft(nextText);
-  }, [finalTranscript, interimTranscript, listening]);
+  useEffect(() => () => {
+    recognitionRef.current?.stop();
+  }, []);
 
   const toggleVoiceInput = () => {
     if (!browserSupportsSpeechRecognition) {
@@ -115,16 +108,61 @@ export default function Chat({ initialPeer, onLoginOpen }) {
     }
 
     if (listening) {
-      SpeechRecognition.stopListening();
+      recognitionRef.current?.stop();
       return;
     }
 
+    if (!window.isSecureContext && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      setError('Голосовой ввод работает только на HTTPS или localhost.');
+      return;
+    }
+
+    setError(null);
     transcriptBaseRef.current = draft.trim();
-    resetTranscript();
-    SpeechRecognition.startListening({
-      continuous: false,
-      language: voiceLanguage,
-    });
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognitionAPI();
+    recognition.lang = voiceLanguage;
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => setListening(true);
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    recognition.onerror = (event) => {
+      setListening(false);
+      recognitionRef.current = null;
+      const messages = {
+        'not-allowed': 'Разреши доступ к микрофону в браузере.',
+        'service-not-allowed': 'Браузер заблокировал сервис распознавания речи.',
+        'no-speech': 'Голос не распознан. Попробуй сказать чуть громче.',
+        network: 'Не удалось подключиться к сервису распознавания речи.',
+        'audio-capture': 'Микрофон не найден или занят другим приложением.',
+      };
+      setError(messages[event.error] || 'Не удалось запустить голосовой ввод.');
+    };
+    recognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+
+      Array.from(event.results).forEach((result) => {
+        const text = result[0]?.transcript || '';
+        if (result.isFinal) finalText += text;
+        else interimText += text;
+      });
+
+      setDraft(`${transcriptBaseRef.current} ${finalText} ${interimText}`.trim());
+    };
+
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setListening(false);
+      setError('Голосовой ввод уже запускается. Попробуй ещё раз.');
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -132,8 +170,7 @@ export default function Chat({ initialPeer, onLoginOpen }) {
     const text = draft.trim();
     if (!text || !activePeer) return;
 
-    SpeechRecognition.stopListening();
-    resetTranscript();
+    recognitionRef.current?.stop();
     setDraft('');
     try {
       await api.sendMessage(activePeer, text);

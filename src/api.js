@@ -3,9 +3,18 @@ import { articles as localArticles } from './data/articles.js';
 const API_URL = import.meta.env.VITE_API_URL || '';
 const DEMO_DB_KEY = 'spadchina_demo_db';
 const FORCE_DEMO = window.location.hostname.endsWith('github.io');
+const TOKEN_KEY = 'cultcode_token';
 
 function getToken() {
-  return localStorage.getItem('cultcode_token');
+  const tabToken = sessionStorage.getItem(TOKEN_KEY);
+  if (tabToken) return tabToken;
+
+  const legacyToken = localStorage.getItem(TOKEN_KEY);
+  if (legacyToken) {
+    sessionStorage.setItem(TOKEN_KEY, legacyToken);
+    localStorage.removeItem(TOKEN_KEY);
+  }
+  return legacyToken;
 }
 
 function readDemoDB() {
@@ -89,6 +98,45 @@ function demoLeaderboard(db) {
     .sort((a, b) => b.points - a.points);
 }
 
+function buildDemoDuelQuestions(count = 10) {
+  return localArticles
+    .flatMap((article) => article.questions || [])
+    .slice(0, count)
+    .map((question, index) => ({
+      id: question.id || index + 1,
+      type: question.type || 'single',
+      question: question.question,
+      options: question.options || [],
+      correct: question.correct,
+      category: question.category || 'culture',
+      category_label: question.category_label || 'Культура',
+    }));
+}
+
+function publicDemoDuel(duel, db) {
+  const challenger = db.users.find((user) => user.id === duel.challenger_id);
+  const opponent = db.users.find((user) => user.id === duel.opponent_id);
+  const winner = db.users.find((user) => user.id === duel.winner_id);
+
+  return {
+    ...duel,
+    challenger: challenger?.username || '',
+    opponent: opponent?.username || '',
+    winner: winner?.username || '',
+  };
+}
+
+function uniqueDemoUsername(db, name) {
+  const base = String(name || '').trim() || 'user';
+  let username = base;
+
+  for (let suffix = 1; db.users.some((user) => user.username.toLowerCase() === username.toLowerCase()); suffix += 1) {
+    username = `${base} ${suffix}`;
+  }
+
+  return username;
+}
+
 async function demoRequest(path, options = {}) {
   const db = readDemoDB();
   const method = options.method || 'GET';
@@ -96,19 +144,20 @@ async function demoRequest(path, options = {}) {
   if (path === '/api/register' && method === 'POST') {
     const body = getJSONBody(options);
     const email = String(body.email || '').trim().toLowerCase();
-    const username = String(body.name || email.split('@')[0] || 'user').trim();
+    const name = String(body.name || email.split('@')[0] || 'user').trim();
     if (!email || !body.password) throw new Error('Заполни email и пароль');
-    const existing = db.users.find((user) => user.email === email || user.username === username);
+    const existing = db.users.find((user) => user.email === email);
     if (existing) {
       existing.password = String(body.password);
-      existing.name = existing.name || username;
+      existing.name = existing.name || name;
       writeDemoDB(db);
       return { token: `demo:${existing.id}`, user: publicUser(existing) };
     }
+    const username = uniqueDemoUsername(db, name);
     const user = {
       id: Date.now(),
       username,
-      name: username,
+      name,
       email,
       password: String(body.password),
       role: email === 'n4963959@gmail.com' ? 'admin' : 'user',
@@ -219,9 +268,68 @@ async function demoRequest(path, options = {}) {
     return message;
   }
 
-  if (path === '/api/duels' && method === 'POST') return { status: 'created' };
-  if (path === '/api/duels') return db.duels;
-  if (path.startsWith('/api/duels/')) return { status: 'ok', questions: [] };
+  if (path === '/api/duels' && method === 'POST') {
+    const user = requireDemoUser(db);
+    const body = getJSONBody(options);
+    const opponentName = String(body.opponent || '').trim().toLowerCase();
+    const opponent = db.users
+      .filter((item) => item.username.toLowerCase() === opponentName || item.name?.toLowerCase() === opponentName)
+      .sort((a, b) => (a.id === user.id ? 1 : 0) - (b.id === user.id ? 1 : 0))[0];
+
+    if (!opponent) throw new Error('user not found');
+    if (opponent.id === user.id) throw new Error('cannot duel yourself');
+
+    const now = new Date().toISOString();
+    const duel = {
+      id: Date.now(),
+      challenger_id: user.id,
+      opponent_id: opponent.id,
+      status: 'pending',
+      question_set: 0,
+      questions: buildDemoDuelQuestions(),
+      challenger_score: -1,
+      opponent_score: -1,
+      winner_id: 0,
+      created_at: now,
+      updated_at: now,
+    };
+    db.duels.unshift(duel);
+    writeDemoDB(db);
+    return { id: duel.id, status: duel.status };
+  }
+
+  if (path === '/api/duels') {
+    const user = requireDemoUser(db);
+    return db.duels
+      .filter((duel) => duel.challenger_id === user.id || duel.opponent_id === user.id)
+      .map((duel) => publicDemoDuel(duel, db));
+  }
+
+  if (path.startsWith('/api/duels/')) {
+    const user = requireDemoUser(db);
+    const [, action] = path.replace('/api/duels/', '').split('/');
+    const id = Number(path.replace('/api/duels/', '').split('/')[0]);
+    const duel = db.duels.find((item) => item.id === id);
+    if (!duel || (duel.challenger_id !== user.id && duel.opponent_id !== user.id)) throw new Error('duel not found');
+
+    if (action === 'accept' && method === 'POST') {
+      if (duel.opponent_id !== user.id || duel.status !== 'pending') throw new Error('duel cannot be accepted');
+      duel.status = 'active';
+      duel.updated_at = new Date().toISOString();
+      writeDemoDB(db);
+      return { status: 'active' };
+    }
+
+    if (action === 'decline' && method === 'POST') {
+      if (duel.opponent_id !== user.id || duel.status !== 'pending') throw new Error('duel cannot be updated');
+      duel.status = 'declined';
+      duel.updated_at = new Date().toISOString();
+      writeDemoDB(db);
+      return { status: 'declined' };
+    }
+
+    return publicDemoDuel(duel, db);
+  }
 
   if (path === '/api/team-battles/categories') {
     return [

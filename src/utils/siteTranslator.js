@@ -361,7 +361,14 @@ function translateNode(node) {
     const parent = node.parentElement;
     if (!parent || shouldSkipElement(parent)) return;
 
-    if (!originalText.has(node)) {
+    const cached = originalText.get(node);
+    const translated = cached ? (currentLanguage === 'be' ? translateTextToBelarusian(cached) : cached) : null;
+
+    // Если текущий текст не совпадает ни с закэшированным оригиналом, ни с его
+    // переводом — значит внешний код (например, React) обновил содержимое узла.
+    // Обновляем кэш, иначе переводчик будет бесконечно откатывать динамический
+    // текст (например, переключение вопросов в викторине) к устаревшему значению.
+    if (cached === undefined || (node.nodeValue !== cached && node.nodeValue !== translated)) {
       originalText.set(node, node.nodeValue);
     }
 

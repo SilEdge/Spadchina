@@ -472,6 +472,29 @@ func findUserIDByUsername(username string) (int, bool) {
 	return id, true
 }
 
+func findDuelOpponentID(identifier string, currentUserID int) (int, bool) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return 0, false
+	}
+
+	var id int
+	err := db.QueryRow(`
+		SELECT id
+		FROM users
+		WHERE lower(username) = lower(?) OR lower(name) = lower(?)
+		ORDER BY
+			CASE WHEN id = ? THEN 1 ELSE 0 END,
+			CASE WHEN lower(username) = lower(?) THEN 0 ELSE 1 END,
+			id
+		LIMIT 1
+	`, identifier, identifier, currentUserID, identifier).Scan(&id)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
 func duelsHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
 
@@ -488,8 +511,9 @@ func duelsHandler(w http.ResponseWriter, r *http.Request) {
 func getDuelsHandler(w http.ResponseWriter, r *http.Request) {
 	claims := userFromContext(r.Context())
 	rows, err := db.Query(`
-		SELECT d.id, cu.username, ou.username, d.status, d.question_set, d.questions,
-			d.challenger_score, d.opponent_score, COALESCE(wu.username, ''),
+		SELECT d.id, d.challenger_id, cu.username, d.opponent_id, ou.username,
+			d.status, d.question_set, d.questions, d.challenger_score, d.opponent_score,
+			COALESCE(d.winner_id, 0), COALESCE(wu.username, ''),
 			d.created_at, d.updated_at
 		FROM duels d
 		JOIN users cu ON cu.id = d.challenger_id
@@ -525,7 +549,7 @@ func createDuelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opponentName := strings.TrimSpace(req.Opponent)
-	opponentID, ok := findUserIDByUsername(opponentName)
+	opponentID, ok := findDuelOpponentID(opponentName, claims.UserID)
 	if !ok {
 		respondError(w, "user not found", http.StatusNotFound)
 		return
@@ -722,7 +746,7 @@ func finishDuelHandler(w http.ResponseWriter, r *http.Request, duelID int) {
 
 	score := scoreDuelAnswers(duel.Questions, req.Answers)
 	var query string
-	if claims.Username == duel.Challenger {
+	if claims.UserID == duel.ChallengerID {
 		query = "UPDATE duels SET challenger_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND challenger_score = -1"
 	} else {
 		query = "UPDATE duels SET opponent_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND opponent_score = -1"
@@ -745,8 +769,9 @@ func finishDuelHandler(w http.ResponseWriter, r *http.Request, duelID int) {
 
 func getDuelForUser(duelID int, userID int) (Duel, bool) {
 	row := db.QueryRow(`
-		SELECT d.id, cu.username, ou.username, d.status, d.question_set, d.questions,
-			d.challenger_score, d.opponent_score, COALESCE(wu.username, ''),
+		SELECT d.id, d.challenger_id, cu.username, d.opponent_id, ou.username,
+			d.status, d.question_set, d.questions, d.challenger_score, d.opponent_score,
+			COALESCE(d.winner_id, 0), COALESCE(wu.username, ''),
 			d.created_at, d.updated_at
 		FROM duels d
 		JOIN users cu ON cu.id = d.challenger_id
@@ -768,13 +793,16 @@ func scanDuel(scanner duelScanner) (Duel, bool) {
 	var questionsRaw string
 	err := scanner.Scan(
 		&duel.ID,
+		&duel.ChallengerID,
 		&duel.Challenger,
+		&duel.OpponentID,
 		&duel.Opponent,
 		&duel.Status,
 		&duel.QuestionSet,
 		&questionsRaw,
 		&duel.ChallengerScore,
 		&duel.OpponentScore,
+		&duel.WinnerID,
 		&duel.Winner,
 		&duel.CreatedAt,
 		&duel.UpdatedAt,

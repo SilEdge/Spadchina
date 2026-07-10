@@ -1,9 +1,12 @@
 import { useState } from 'react';
 
+let mountCount = 0;
 export default function Quiz({ article, onFinish, onBack }) {
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState([]);
   const [answers, setAnswers] = useState([]);
+  mountCount += 1;
+  console.log('[Quiz] mount/render #', mountCount, 'current=', current, 'selected=', selected, 'qlen=', article.questions.length);
 
   const question = article.questions[current];
   const isLast = current === article.questions.length - 1;
@@ -19,6 +22,7 @@ export default function Quiz({ article, onFinish, onBack }) {
   };
 
   const handleNext = () => {
+    console.log('[Quiz] handleNext called, current=', current, 'isLast=', isLast, 'selected=', selected);
     let isCorrect = false;
 
     if (question.type === 'multiple') {
@@ -34,8 +38,10 @@ export default function Quiz({ article, onFinish, onBack }) {
 
     if (isLast) {
       const score = newAnswers.filter((a) => a.isCorrect).length;
+      console.log('[Quiz] isLast, calling onFinish, score=', score);
       onFinish(score);
     } else {
+      console.log('[Quiz] advancing current from', current);
       setCurrent((prev) => prev + 1);
       setSelected([]);
     }

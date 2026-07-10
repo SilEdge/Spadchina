@@ -12,6 +12,10 @@ function isCorrect(question, selected) {
   return selected.length === 1 && selected[0] === question.correct;
 }
 
+function sameUserByName(left, right) {
+  return String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
+}
+
 export default function Duels({ initialOpponent, onLoginOpen }) {
   const { user } = useUser();
   const [duels, setDuels] = useState([]);
@@ -58,25 +62,34 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
     return () => window.clearInterval(timer);
   }, [activeDuel, current]);
 
-  const incoming = duels.filter((duel) => duel.status === 'pending' && duel.opponent === user?.username);
+  const isMeAsChallenger = (duel) => {
+    if (duel.challenger_id && user?.id) return duel.challenger_id === user.id;
+    return sameUserByName(duel.challenger, user?.username) || sameUserByName(duel.challenger, user?.name);
+  };
+  const isMeAsOpponent = (duel) => {
+    if (duel.opponent_id && user?.id) return duel.opponent_id === user.id;
+    return sameUserByName(duel.opponent, user?.username) || sameUserByName(duel.opponent, user?.name);
+  };
+
+  const incoming = duels.filter((duel) => duel.status === 'pending' && isMeAsOpponent(duel));
   const active = duels.filter((duel) => duel.status === 'active');
   const history = duels.filter((duel) => duel.status === 'completed');
   const getRivalName = (duel) => (
-    duel.challenger === user?.username ? duel.opponent : duel.challenger
+    isMeAsChallenger(duel) ? duel.opponent : duel.challenger
   );
   const getMyDuelScore = (duel) => (
-    duel.challenger === user?.username ? duel.challenger_score : duel.opponent_score
+    isMeAsChallenger(duel) ? duel.challenger_score : duel.opponent_score
   );
   const getRivalDuelScore = (duel) => (
-    duel.challenger === user?.username ? duel.opponent_score : duel.challenger_score
+    isMeAsChallenger(duel) ? duel.opponent_score : duel.challenger_score
   );
   const getDuelResultLabel = (duel) => {
     if (!duel.winner) return 'Ничья';
-    return duel.winner === user?.username ? 'Ты победил' : `Победил ${duel.winner}`;
+    return duel.winner_id === user?.id ? 'Ты победил' : `Победил ${duel.winner}`;
   };
 
   const question = activeDuel?.questions[current];
-  const mySubmittedScore = user?.username === activeDuel?.challenger
+  const mySubmittedScore = activeDuel && isMeAsChallenger(activeDuel)
     ? activeDuel?.challenger_score
     : activeDuel?.opponent_score;
   const iHaveSubmitted = activeDuel?.status === 'active' && Number(mySubmittedScore) >= 0;
@@ -120,7 +133,7 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
 
     const acceptedDuel = duels.find((duel) => (
       duel.status === 'active' &&
-      duel.challenger === user.username &&
+      isMeAsChallenger(duel) &&
       Number(duel.challenger_score) < 0 &&
       !autoStartedDuelIds.current.has(duel.id)
     ));
@@ -203,7 +216,7 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
   }, [activeDuel, iHaveSubmitted, loadDuels]);
 
   useEffect(() => {
-    if (activeDuel?.status !== 'completed' || activeDuel.winner !== user?.username) return;
+    if (activeDuel?.status !== 'completed' || activeDuel.winner_id !== user?.id) return;
 
     const key = `cultcode_shop_${user.username}`;
     const parsed = JSON.parse(localStorage.getItem(key) || '{}');
@@ -304,7 +317,7 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
   }
 
   if (activeDuel?.status === 'completed') {
-    const isWinner = activeDuel.winner === user.username;
+    const isWinner = activeDuel.winner_id === user.id;
     return (
       <section className="section">
         <div className="container">
