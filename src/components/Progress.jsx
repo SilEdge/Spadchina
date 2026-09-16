@@ -176,7 +176,10 @@ export default function Progress() {
     );
   }
 
-  if (loading) {
+  // After registration React renders once with the new user before this
+  // component's loading effect has fetched the initial progress object.
+  // Keep the loading screen visible during that short transition.
+  if (loading || !progress) {
     return (
       <div className="container section">
         <div className="loading-state">

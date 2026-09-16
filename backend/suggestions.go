@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -36,12 +37,34 @@ func suggestionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := sendSuggestionToTelegram(req); err != nil {
-		respondError(w, err.Error(), http.StatusBadGateway)
+	result, err := db.Exec(
+		"INSERT INTO suggestions (name, email, message) VALUES (?, ?, ?)",
+		strings.TrimSpace(req.Name),
+		strings.TrimSpace(req.Email),
+		message,
+	)
+	if err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
 		return
 	}
 
-	respondJSON(w, map[string]string{"status": "sent"}, http.StatusOK)
+	id, _ := result.LastInsertId()
+	if err := sendSuggestionToTelegram(req); err != nil {
+		log.Printf("Suggestion %d saved locally; Telegram delivery skipped: %v", id, err)
+		respondJSON(w, map[string]interface{}{
+			"id":       id,
+			"status":   "saved",
+			"delivery": "local",
+		}, http.StatusAccepted)
+		return
+	}
+
+	_, _ = db.Exec("UPDATE suggestions SET telegram_delivered = 1 WHERE id = ?", id)
+	respondJSON(w, map[string]interface{}{
+		"id":       id,
+		"status":   "sent",
+		"delivery": "telegram",
+	}, http.StatusOK)
 }
 
 func sendSuggestionToTelegram(req SuggestionRequest) error {

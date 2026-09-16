@@ -256,7 +256,7 @@ func getProgressHandler(w http.ResponseWriter, r *http.Request) {
 
 	var points, total, completed int
 	db.QueryRow("SELECT points FROM users WHERE id = ?", claims.UserID).Scan(&points)
-	db.QueryRow("SELECT COUNT(*) FROM articles").Scan(&total)
+	db.QueryRow("SELECT COUNT(*) FROM articles WHERE title NOT LIKE 'Командные вопросы:%'").Scan(&total)
 	db.QueryRow("SELECT COUNT(*) FROM results WHERE user_id = ?", claims.UserID).Scan(&completed)
 
 	respondJSON(w, map[string]interface{}{
@@ -1018,8 +1018,8 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	questionCount := req.QuestionCount
-	if questionCount < 10 || questionCount > 20 {
-		respondError(w, "question count must be from 10 to 20", http.StatusBadRequest)
+	if questionCount < 10 || questionCount > 30 {
+		respondError(w, "question count must be from 10 to 30", http.StatusBadRequest)
 		return
 	}
 
@@ -1312,7 +1312,6 @@ func awardTeamBattlePoints(battleID int) {
 	if err != nil {
 		return
 	}
-	defer rows.Close()
 
 	type rankedParticipant struct {
 		UserID       int
@@ -1325,6 +1324,9 @@ func awardTeamBattlePoints(battleID int) {
 		if err := rows.Scan(&item.UserID, &item.RewardPoints); err == nil {
 			participants = append(participants, item)
 		}
+	}
+	if err := rows.Close(); err != nil {
+		return
 	}
 
 	rewards := []int{60, 40, 20}

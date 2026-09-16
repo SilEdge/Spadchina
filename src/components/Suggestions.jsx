@@ -43,8 +43,13 @@ export default function Suggestions() {
     setStatus(null);
 
     try {
-      await api.sendSuggestion(trimmedMessage, user || {});
-      setStatus({ type: 'success', text: 'Идея отправлена в Telegram.' });
+      const result = await api.sendSuggestion(trimmedMessage, user || {});
+      setStatus({
+        type: 'success',
+        text: result.delivery === 'telegram'
+          ? 'Идея отправлена в Telegram.'
+          : 'Идея сохранена на сервере. Telegram пока не подключён.',
+      });
       setMessage('');
     } catch (error) {
       const isNotConfigured = error.message.includes('telegram bot is not configured');

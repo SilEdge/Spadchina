@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { articles as localArticles } from '../data/articles.js';
 import { useUser } from '../contexts/UserContext.jsx';
-import { getImageSource } from '../utils/imageSource.js';
 
 import Icon from './Icon.jsx';
 
@@ -48,7 +47,6 @@ export default function Hero({ onStart, onSelectArticle }) {
     () => articles[new Date().getDate() % articles.length] || articles[0],
     [articles]
   );
-  const placeOfDaySource = getImageSource(placeOfDay.image);
 
   useEffect(() => {
     let ignore = false;
@@ -102,11 +100,6 @@ export default function Hero({ onStart, onSelectArticle }) {
                 <h3>{placeOfDay.title}</h3>
                 <p>{placeOfDay.region}</p>
               </div>
-              {placeOfDaySource && (
-                <a className="image-source" href={placeOfDaySource.href} target="_blank" rel="noreferrer">
-                  Источник: {placeOfDaySource.label}
-                </a>
-              )}
             </article>
           </div>
         </div>
@@ -183,17 +176,6 @@ export default function Hero({ onStart, onSelectArticle }) {
                   <h3>{place.title}</h3>
                   <p>{place.region} · {place.questions.length} заданий</p>
                 </div>
-                {getImageSource(place.image) && (
-                  <a
-                    className="image-source"
-                    href={getImageSource(place.image).href}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    Источник: {getImageSource(place.image).label}
-                  </a>
-                )}
               </article>
             ))}
           </div>

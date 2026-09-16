@@ -44,8 +44,9 @@ export default function App() {
 
   const handleStartQuiz = () => {
     const sets = selectedArticle?.questionSets?.length ? selectedArticle.questionSets : [selectedArticle.questions];
-    const randomSet = sets[Math.floor(Math.random() * sets.length)] || selectedArticle.questions;
-    setQuizArticle({ ...selectedArticle, questions: randomSet });
+    const shuffledSets = [...sets].sort(() => Math.random() - 0.5);
+    const questions = shuffledSets.slice(0, 2).flat().slice(0, 10);
+    setQuizArticle({ ...selectedArticle, questions: questions.length ? questions : selectedArticle.questions });
     setQuizState('quiz');
   };
 

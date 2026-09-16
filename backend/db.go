@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"log"
+	"os"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -13,8 +14,20 @@ var db *sql.DB
 
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite", "./cultcode.db")
+	databasePath := strings.TrimSpace(os.Getenv("DATABASE_PATH"))
+	if databasePath == "" {
+		databasePath = "./cultcode.db"
+	}
+	db, err = sql.Open("sqlite", databasePath)
 	if err != nil {
+		log.Fatal(err)
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	if _, err = db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		log.Fatal(err)
+	}
+	if err = db.Ping(); err != nil {
 		log.Fatal(err)
 	}
 
@@ -64,6 +77,14 @@ func initDB() {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (sender_id) REFERENCES users(id),
 			FOREIGN KEY (receiver_id) REFERENCES users(id)
+		);`,
+		`CREATE TABLE IF NOT EXISTS suggestions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT,
+			email TEXT,
+			message TEXT NOT NULL,
+			telegram_delivered INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE TABLE IF NOT EXISTS duels (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,6 +145,7 @@ func initDB() {
 
 	createAdmin()
 	seedArticles()
+	seedExpandedArticles()
 	normalizeArticleImages()
 	ensureTeamBattleQuestionMinimums()
 }

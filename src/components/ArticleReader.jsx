@@ -1,7 +1,7 @@
-import { getImageSource } from '../utils/imageSource.js';
-
 export default function ArticleReader({ article, onStartQuiz, onBack }) {
-  const imageSource = getImageSource(article.image);
+  const taskCount = article.questionSets?.length
+    ? Math.min(10, article.questionSets.flat().length)
+    : article.questions.length;
 
   return (
     <section className="section">
@@ -16,11 +16,6 @@ export default function ArticleReader({ article, onStartQuiz, onBack }) {
             style={{ backgroundImage: `url("${article.image}")` }}
           >
             <span className={`badge badge-${article.category}`}>{article.categoryLabel}</span>
-            {imageSource && (
-              <a className="image-source" href={imageSource.href} target="_blank" rel="noreferrer">
-                Источник: {imageSource.label}
-              </a>
-            )}
           </div>
 
           <div className="reader-content">
@@ -53,7 +48,7 @@ export default function ArticleReader({ article, onStartQuiz, onBack }) {
               <button className="btn-primary btn-large" onClick={onStartQuiz}>
                 Перейти к заданиям
               </button>
-              <span className="muted">{article.questions.length} заданий по материалу</span>
+              <span className="muted">{taskCount} заданий по материалу</span>
             </div>
           </div>
         </article>

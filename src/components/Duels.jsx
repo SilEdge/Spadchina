@@ -62,14 +62,14 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
     return () => window.clearInterval(timer);
   }, [activeDuel, current]);
 
-  const isMeAsChallenger = (duel) => {
+  const isMeAsChallenger = useCallback((duel) => {
     if (duel.challenger_id && user?.id) return duel.challenger_id === user.id;
     return sameUserByName(duel.challenger, user?.username) || sameUserByName(duel.challenger, user?.name);
-  };
-  const isMeAsOpponent = (duel) => {
+  }, [user?.id, user?.name, user?.username]);
+  const isMeAsOpponent = useCallback((duel) => {
     if (duel.opponent_id && user?.id) return duel.opponent_id === user.id;
     return sameUserByName(duel.opponent, user?.username) || sameUserByName(duel.opponent, user?.name);
-  };
+  }, [user?.id, user?.name, user?.username]);
 
   const incoming = duels.filter((duel) => duel.status === 'pending' && isMeAsOpponent(duel));
   const active = duels.filter((duel) => duel.status === 'active');
@@ -118,7 +118,7 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
     await loadDuels();
   };
 
-  const startDuel = (duel) => {
+  const startDuel = useCallback((duel) => {
     setActiveDuel(duel);
     setCurrent(0);
     setSelected([]);
@@ -126,7 +126,7 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
     setTimeLeft(QUESTION_SECONDS);
     setSubmitting(false);
     setMessage(null);
-  };
+  }, []);
 
   useEffect(() => {
     if (!user || activeDuel) return;
@@ -142,7 +142,7 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
 
     autoStartedDuelIds.current.add(acceptedDuel.id);
     startDuel(acceptedDuel);
-  }, [activeDuel, duels, user]);
+  }, [activeDuel, duels, isMeAsChallenger, startDuel, user]);
 
   const toggleAnswer = (index) => {
     if (!question) return;
@@ -229,7 +229,7 @@ export default function Duels({ initialOpponent, onLoginOpen }) {
       active: DUEL_REWARD_ID,
     }));
     window.dispatchEvent(new CustomEvent('cultcode-decoration-change'));
-  }, [activeDuel, user?.username]);
+  }, [activeDuel, user?.id, user?.username]);
 
   if (!user) {
     return (

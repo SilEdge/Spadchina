@@ -20,7 +20,38 @@ func main() {
 	defer db.Close()
 	startTelegramBot()
 
+	mux := newServerMux()
+
+	port := getPort()
+	host := os.Getenv("HOST")
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	addr := host + ":" + port
+	log.Println("Server starting on http://" + addr)
+	log.Println("Admin credentials: n4963959@gmail.com / admin123")
+	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func newServerMux() *http.ServeMux {
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			respondError(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := db.PingContext(r.Context()); err != nil {
+			respondError(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		respondJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+	})
 
 	// Auth
 	mux.HandleFunc("/api/register", registerHandler)
@@ -87,13 +118,5 @@ func main() {
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	port := getPort()
-	host := os.Getenv("HOST")
-	if host == "" {
-		host = "0.0.0.0"
-	}
-	addr := host + ":" + port
-	log.Println("Server starting on http://" + addr)
-	log.Println("Admin credentials: n4963959@gmail.com / admin123")
-	log.Fatal(http.ListenAndServe(addr, mux))
+	return mux
 }

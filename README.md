@@ -13,13 +13,11 @@
 ### 1. Бэкенд
 
 ```bash
-cd backend
-go mod tidy
-go build -o cultcode-backend .
-./cultcode-backend
+npm run dev:backend
 ```
 
-Бэкенд запустится на `http://127.0.0.1:8081`.
+Бэкенд запустится на `http://127.0.0.1:8081`. Проверка состояния доступна по адресу
+`http://127.0.0.1:8081/api/health` и должна вернуть `{"status":"ok"}`.
 
 ### 2. Фронтенд
 
@@ -31,6 +29,30 @@ npm run dev
 ```
 
 Открой в браузере `http://localhost:5173`.
+
+Vite автоматически перенаправляет запросы `/api` на локальный бэкенд. Для отдельного
+развёртывания фронтенда укажи переменную сборки `VITE_API_URL` в файле
+`.env.production`:
+
+```env
+VITE_API_URL=https://your-backend.example.com
+```
+
+После этого выполни `npm run build`.
+
+Путь к SQLite можно изменить переменной `DATABASE_PATH`. Если Telegram-боты не
+настроены, идеи пользователей всё равно сохраняются в таблице `suggestions`.
+
+## Проверка
+
+```bash
+npm run lint
+npm run build
+npm run test:backend
+```
+
+Сквозной тест проверяет регистрацию, авторизацию, чат, дуэли, командные игры,
+сохранение идей и операции администратора.
 
 ## Данные администратора
 
@@ -56,6 +78,7 @@ npm run dev
 - `POST /api/login` — вход
 - `GET /api/articles` — список статей
 - `GET /api/articles/:id` — одна статья
+- `GET /api/health` — состояние сервера и базы данных
 
 ### Требуют авторизации
 - `GET /api/me` — текущий пользователь

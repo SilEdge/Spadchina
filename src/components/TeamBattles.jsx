@@ -329,7 +329,7 @@ export default function TeamBattles({ onLoginOpen }) {
               <div className="team-field">
                 <span>Количество вопросов</span>
                 <div className="team-count-options">
-                  {Array.from({ length: 11 }, (_, index) => index + 10).map((count) => (
+                  {Array.from({ length: 21 }, (_, index) => index + 10).map((count) => (
                     <button
                       key={count}
                       type="button"
