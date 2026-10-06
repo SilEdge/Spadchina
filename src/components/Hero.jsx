@@ -15,9 +15,9 @@ const categoryMeta = {
 };
 
 const steps = [
-  { title: 'Выбери тему', text: 'Фильтруй материалы по интересам.' },
-  { title: 'Читай и изучай', text: 'Короткие статьи с ключевыми фактами.' },
-  { title: 'Проходи челленджи', text: 'Отвечай на вопросы и зарабатывай баллы.' },
+  { title: 'Найди место', text: 'Выбери памятник, музей, природный уголок или историю родного края.' },
+  { title: 'Открой его историю', text: 'Изучи факты, культурный контекст и то, чем место живёт сегодня.' },
+  { title: 'Передай знание дальше', text: 'Проверь себя в задании, поделись открытием и продолжи маршрут.' },
 ];
 
 const localArticleByTitle = new Map(localArticles.map((article) => [article.title, article]));
@@ -76,24 +76,24 @@ export default function Hero({ onStart, onSelectArticle }) {
         <div className="container hero-content">
           <div className="hero-text">
             {user && <span className="hero-welcome">Привет,{' '}{user.name || user.username}</span>}
-            <span className="hero-label">Интерактивный гид по Беларуси</span>
-            <h1>Узнай свою страну не&nbsp;по&nbsp;учебнику</h1>
+            <span className="hero-label">Цифровой маршрут по малой родине</span>
+            <h1>Малая родина — в объективе технологий</h1>
             <p className="hero-subtitle">
-              Замки, древние храмы, национальные парки и городские легенды.
-              Изучай Беларусь через короткие материалы и мини-викторины.
+              Открывай Беларусь через истории её мест: от старинных замков и храмов
+              до семейных воспоминаний, природных уголков и живых традиций.
             </p>
             <div className="hero-actions">
               <button className="btn-primary btn-large" onClick={onStart}>
-                Начать исследование
+                Пройти маршрут
               </button>
               <button className="btn-ghost btn-large" onClick={onStart}>
-                Смотреть каталог
+                Открыть каталог мест
               </button>
             </div>
           </div>
 
           <div className="hero-spotlight">
-            <span className="spotlight-label">Место дня</span>
+            <span className="spotlight-label">Кадр из цифрового маршрута · место дня</span>
             <article
               className="spotlight-card"
               style={{ backgroundImage: `url("${placeOfDay.image}")` }}
@@ -122,6 +122,21 @@ export default function Hero({ onStart, onSelectArticle }) {
               <span>направлений</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="contest-ribbon" aria-label="Концепция проекта">
+        <div className="container contest-ribbon-inner">
+          <span className="contest-ribbon-mark" aria-hidden="true">С</span>
+          <div>
+            <span className="contest-ribbon-kicker">Концепция проекта</span>
+            <p>
+              Номинация «Судьба малой родины в объективе технологий» ·
+              цифровой атлас, который помогает изучать, беречь и передавать
+              историю родного края.
+            </p>
+          </div>
+          <span className="contest-ribbon-stamp">ПАМЯТЬ<br />МЕСТО<br />ЛЮДИ</span>
         </div>
       </section>
 
@@ -189,7 +204,7 @@ export default function Hero({ onStart, onSelectArticle }) {
         <div className="container">
           <div className="section-head section-head-center">
             <span className="section-kicker">Как это работает</span>
-            <h2 className="section-title">Три шага к знанию</h2>
+            <h2 className="section-title">От первой точки — к своей истории</h2>
           </div>
           <div className="steps-grid clean">
             {steps.map((step, index) => (

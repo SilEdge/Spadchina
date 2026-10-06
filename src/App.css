@@ -4904,6 +4904,233 @@
   line-height: 1.55;
 }
 
+/* «Судьба малой родины в объективе технологий» project identity */
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding-top: 4rem;
+  color: #f8f5ec;
+  background:
+    radial-gradient(ellipse at 85% 12%, rgba(180, 147, 83, 0.16), transparent 25rem),
+    linear-gradient(118deg, #122f28 0%, #174638 58%, #203f35 100%);
+  border-bottom: 0;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.12;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(105deg, transparent 8%, #000 100%);
+}
+
+.hero-content,
+.hero-metrics {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-content {
+  gap: clamp(2rem, 5vw, 5rem);
+}
+
+.hero-welcome {
+  color: rgba(248, 245, 236, 0.72);
+}
+
+.hero-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.48rem 0.8rem;
+  color: #e7cf9a;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(231, 207, 154, 0.28);
+  border-radius: 999px;
+  font-size: 0.73rem;
+  letter-spacing: 0.09em;
+}
+
+.hero-label::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  background: #d8b975;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(216, 185, 117, 0.12);
+}
+
+.hero h1 {
+  max-width: 680px;
+  color: #fffdf7;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(3rem, 5.5vw, 5rem);
+  font-weight: 500;
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+}
+
+.hero-subtitle {
+  max-width: 540px;
+  color: rgba(248, 245, 236, 0.78);
+  font-size: 1.08rem;
+}
+
+.hero-actions .btn-ghost {
+  color: #fffdf7;
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.hero-actions .btn-ghost:hover {
+  color: #fffdf7;
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.48);
+}
+
+.spotlight-label {
+  color: #e7cf9a;
+  letter-spacing: 0.08em;
+}
+
+.spotlight-card {
+  min-height: 440px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 18px;
+  box-shadow: 0 28px 65px rgba(5, 19, 15, 0.34);
+}
+
+.hero-metrics {
+  color: var(--text);
+  background: rgba(10, 29, 24, 0.28);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.hero-metrics .metric strong {
+  color: #f2d79c;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 2.55rem;
+  font-weight: 500;
+}
+
+.hero-metrics .metric span {
+  color: rgba(248, 245, 236, 0.72);
+}
+
+.contest-ribbon {
+  padding: 1.15rem 0;
+  background: #eae4d5;
+  border-bottom: 1px solid rgba(32, 45, 41, 0.12);
+}
+
+.contest-ribbon-inner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+}
+
+.contest-ribbon-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: #fffdf7;
+  background: var(--accent);
+  border-radius: 50%;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.5rem;
+}
+
+.contest-ribbon-kicker {
+  display: block;
+  margin-bottom: 0.14rem;
+  color: var(--primary);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.contest-ribbon p {
+  max-width: 850px;
+  margin: 0;
+  color: #36443e;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.contest-ribbon-stamp {
+  padding-left: 1rem;
+  color: rgba(23, 76, 58, 0.64);
+  border-left: 1px solid rgba(23, 76, 58, 0.24);
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1.45;
+  letter-spacing: 0.14em;
+}
+
+.steps-section {
+  background:
+    linear-gradient(rgba(244, 241, 232, 0.93), rgba(244, 241, 232, 0.93)),
+    repeating-linear-gradient(0deg, transparent 0 31px, rgba(23, 76, 58, 0.07) 31px 32px);
+}
+
+.step-card.clean {
+  position: relative;
+  padding-top: 1.6rem;
+  border-radius: 14px 14px 14px 4px;
+}
+
+.step-card.clean .step-number {
+  color: var(--accent);
+  background: var(--accent-soft);
+  letter-spacing: 0.12em;
+}
+
+.footer {
+  background: linear-gradient(120deg, #172f29, #1c4a3b 68%, #8f3b33 150%);
+}
+
+@media (max-width: 720px) {
+  .hero {
+    padding-top: 2.5rem;
+  }
+
+  .hero-content {
+    gap: 2rem;
+  }
+
+  .hero h1 {
+    max-width: 12ch;
+    font-size: clamp(2.65rem, 12vw, 3.6rem);
+  }
+
+  .hero-subtitle {
+    font-size: 1rem;
+  }
+
+  .spotlight-card {
+    min-height: 320px;
+  }
+
+  .contest-ribbon-inner {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.8rem;
+  }
+
+  .contest-ribbon-stamp {
+    display: none;
+  }
+
+  .contest-ribbon p {
+    font-size: 0.84rem;
+  }
+}
+
 
 @media (max-width: 720px) {
   .suggestions-example-grid {

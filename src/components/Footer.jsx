@@ -13,8 +13,8 @@ export default function Footer({ onNavigate }) {
         <div className="footer-brand">
           <strong className="footer-logo">Спадчына</strong>
           <p className="footer-sub">
-            Интерактивный гид по истории, культуре, природе и традициям Беларуси.
-            Изучай, проходи викторины и соревнуйся с друзьями.
+            Цифровой атлас историй Беларуси: находи места, открывай их наследие
+            и передавай знания дальше.
           </p>
         </div>
 
@@ -54,7 +54,7 @@ export default function Footer({ onNavigate }) {
 
       <div className="container footer-bottom">
         <p>© {currentYear} Спадчына. Все права защищены.</p>
-        <p className="footer-sub">Сделано с любовью к Беларуси.</p>
+        <p className="footer-sub">История родного края — рядом.</p>
       </div>
     </footer>
   );
