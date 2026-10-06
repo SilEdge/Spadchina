@@ -80,7 +80,7 @@ export default function Hero({ onStart, onSelectArticle }) {
             <h1>Малая родина — в объективе технологий</h1>
             <p className="hero-subtitle">
               Открывай Беларусь через истории её мест: от старинных замков и храмов
-              до семейных воспоминаний, природных уголков и живых традиций.
+              до истории городов и деревень, природных уголков и живых традиций.
             </p>
             <div className="hero-actions">
               <button className="btn-primary btn-large" onClick={onStart}>
