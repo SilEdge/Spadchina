@@ -1,7 +1,8 @@
 export default function ArticleReader({ article, onStartQuiz, onBack }) {
-  const taskCount = article.questionSets?.length
-    ? Math.min(10, article.questionSets.flat().length)
+  const questionCount = article.questionSets?.length
+    ? article.questionSets.flat().length
     : article.questions.length;
+  const attemptCount = Math.min(10, questionCount);
 
   return (
     <section className="section">
@@ -48,7 +49,11 @@ export default function ArticleReader({ article, onStartQuiz, onBack }) {
               <button className="btn-primary btn-large" onClick={onStartQuiz}>
                 Перейти к заданиям
               </button>
-              <span className="muted">{taskCount} заданий по материалу</span>
+              <span className="muted">
+                {questionCount > attemptCount
+                  ? `${attemptCount} вопросов за попытку · ${questionCount} заданий в базе`
+                  : `${questionCount} заданий по материалу`}
+              </span>
             </div>
           </div>
         </article>

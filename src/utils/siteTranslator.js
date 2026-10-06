@@ -387,11 +387,26 @@ function translateNode(node) {
       saved = {};
       originalAttributes.set(node, saved);
     }
-    if (!saved[attr]) saved[attr] = node.getAttribute(attr);
-    node.setAttribute(
-      attr,
-      currentLanguage === 'be' ? translateTextToBelarusian(saved[attr]) : saved[attr],
-    );
+    const currentValue = node.getAttribute(attr);
+    const savedValue = saved[attr];
+    const translatedSavedValue = savedValue === undefined
+      ? undefined
+      : currentLanguage === 'be'
+        ? translateTextToBelarusian(savedValue)
+        : savedValue;
+
+    if (
+      savedValue === undefined ||
+      (currentValue !== savedValue && currentValue !== translatedSavedValue)
+    ) {
+      saved[attr] = currentValue;
+    }
+
+    const originalValue = saved[attr];
+    const translatedValue = currentLanguage === 'be'
+      ? translateTextToBelarusian(originalValue)
+      : originalValue;
+    if (currentValue !== translatedValue) node.setAttribute(attr, translatedValue);
   }
 
   for (const child of node.childNodes) {

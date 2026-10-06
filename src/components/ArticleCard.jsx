@@ -2,7 +2,9 @@ export default function ArticleCard({ article, results, onSelect }) {
   const completedResult = (results || []).find((r) => r.article_id === article.id);
   const completed = !!completedResult;
   const score = completedResult?.score ?? 0;
-  const maxScore = article.questions.length;
+  const maxScore = article.questionSets?.length
+    ? Math.min(10, article.questionSets.flat().length)
+    : article.questions.length;
 
   const preview = article.content?.[0]?.text?.slice(0, 100) ?? '';
 

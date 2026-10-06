@@ -172,7 +172,7 @@ export default function ArticleLibrary({ onSelect }) {
 
         {fallback && (
           <div className="alert warning">
-            Показана локальная база из 50 достопримечательностей ({error}).
+            Показана локальная база из {localArticles.length} достопримечательностей ({error}).
           </div>
         )}
 

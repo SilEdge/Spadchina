@@ -32,6 +32,10 @@ export default function App() {
     initSiteTranslator();
   }, []);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [activeTab, quizState]);
+
   const handleStart = () => {
     setActiveTab('library');
   };
@@ -43,10 +47,17 @@ export default function App() {
   };
 
   const handleStartQuiz = () => {
-    const sets = selectedArticle?.questionSets?.length ? selectedArticle.questionSets : [selectedArticle.questions];
-    const shuffledSets = [...sets].sort(() => Math.random() - 0.5);
-    const questions = shuffledSets.slice(0, 2).flat().slice(0, 10);
-    setQuizArticle({ ...selectedArticle, questions: questions.length ? questions : selectedArticle.questions });
+    const questionPool = selectedArticle?.questionSets?.length
+      ? selectedArticle.questionSets.flat()
+      : [...(selectedArticle?.questions || [])];
+
+    for (let index = questionPool.length - 1; index > 0; index -= 1) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [questionPool[index], questionPool[randomIndex]] = [questionPool[randomIndex], questionPool[index]];
+    }
+
+    const questions = questionPool.slice(0, 10);
+    setQuizArticle({ ...selectedArticle, questions });
     setQuizState('quiz');
   };
 

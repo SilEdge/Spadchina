@@ -95,6 +95,7 @@
   gap: 0.3rem;
   min-width: 0;
   padding: 0 0.45rem;
+  z-index: 150;
 }
 
 .burger {
@@ -122,12 +123,15 @@
 
 .nav-link {
   position: relative;
+  display: flex;
+  align-items: center;
   background: transparent;
   color: var(--text-muted);
   padding: 0.55rem 0.72rem;
   border-radius: 999px;
   font-size: 0.88rem;
   white-space: nowrap;
+  text-align: left;
   transition: color 0.25s ease, background-color 0.25s ease, transform 0.15s;
 }
 
@@ -4337,7 +4341,7 @@
   }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1180px) {
   .header-inner {
     grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0.5rem;
@@ -4348,25 +4352,24 @@
   }
 
   .nav {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    left: 50%;
-    right: auto;
-    z-index: 150;
+    position: fixed;
+    top: calc(4.75rem + env(safe-area-inset-top, 0px));
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    left: auto;
     display: none;
     flex: 0 0 auto;
     flex-direction: column;
     gap: 0.25rem;
-    width: min(420px, calc(100vw - 2rem));
-    max-height: calc(100vh - 90px);
+    width: min(360px, calc(100vw - 2rem));
+    max-height: calc(100vh - 6rem);
+    max-height: calc(100dvh - 6rem);
     padding: 0.75rem;
     overflow-y: auto;
-    background: rgba(255, 255, 255, 0.98);
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 26px 70px rgba(31, 41, 51, 0.2);
     box-sizing: border-box;
-    transform: translateX(-50%);
   }
 
   .nav.nav-open {
@@ -4376,6 +4379,8 @@
   .nav-link {
     justify-content: flex-start;
     width: 100%;
+    min-height: 48px;
+    min-width: 0;
     padding: 0.85rem 1rem;
     border-radius: var(--radius);
     font-size: 1rem;
@@ -4400,10 +4405,6 @@
     padding-top: 1rem;
     padding-bottom: 1rem;
     align-items: center;
-  }
-
-  .nav {
-    width: calc(100vw - 2rem);
   }
 
   .logo-subtitle,

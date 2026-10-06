@@ -41,7 +41,10 @@ function parseArticle(article) {
 export default function Hero({ onStart, onSelectArticle }) {
   const { user } = useUser();
   const [articles, setArticles] = useState(localArticles);
-  const totalQuestions = articles.reduce((sum, article) => sum + (article.questions?.length || 0), 0);
+  const totalQuestions = articles.reduce(
+    (sum, article) => sum + (article.questionSets?.flat().length || article.questions?.length || 0),
+    0,
+  );
   const featuredPlaces = useMemo(() => articles.slice(-3).reverse(), [articles]);
   const placeOfDay = useMemo(
     () => articles[new Date().getDate() % articles.length] || articles[0],
@@ -112,7 +115,7 @@ export default function Hero({ onStart, onSelectArticle }) {
             </div>
             <div className="metric">
               <strong>{totalQuestions}</strong>
-              <span>вопросов</span>
+              <span>заданий в каталоге</span>
             </div>
             <div className="metric">
               <strong>6</strong>

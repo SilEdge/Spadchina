@@ -33,9 +33,10 @@ const headerText = {
     openProfile: 'Открыть профиль',
     openMenu: 'Открыть меню',
     closeMenu: 'Закрыть меню',
+    navigation: 'Основная навигация',
     tabs: {
       home: 'Главная',
-      library: 'Места',
+      library: 'Достопримечательности',
       progress: 'Прогресс',
       leaderboard: 'Лидеры',
       chat: 'Чат',
@@ -65,9 +66,10 @@ const headerText = {
     openProfile: 'Адкрыць профіль',
     openMenu: 'Адкрыць меню',
     closeMenu: 'Закрыць меню',
+    navigation: 'Асноўная навігацыя',
     tabs: {
       home: 'Галоўная',
-      library: 'Месцы',
+      library: 'Славутасці',
       progress: 'Прагрэс',
       leaderboard: 'Лідары',
       chat: 'Чат',
@@ -214,11 +216,12 @@ export default function Header({ activeTab, setActiveTab, onLoginOpen, onOpenCha
           <span className="logo-text">Спадчына</span>
         </div>
 
-        <nav className={`nav ${menuOpen ? 'nav-open' : ''}`} ref={menuRef}>
+        <nav className={`nav ${menuOpen ? 'nav-open' : ''}`} ref={menuRef} aria-label={text.navigation}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
               className={`nav-link ${activeTab === tab.id ? 'active' : ''}`}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
               onClick={() => {
                 setActiveTab(tab.id);
                 setMenuOpen(false);
