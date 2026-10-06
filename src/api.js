@@ -3,7 +3,11 @@ import { articles as localArticles } from './data/articles.js';
 const configuredApiUrl = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
 const API_URL = configuredApiUrl || (window.location.protocol === 'file:' ? 'http://127.0.0.1:8081' : '');
 const DEMO_DB_KEY = 'spadchina_demo_db';
-const FORCE_DEMO = !configuredApiUrl && window.location.hostname.endsWith('github.io');
+const hostname = window.location.hostname;
+const FORCE_DEMO = !configuredApiUrl && (
+  hostname.endsWith('github.io') ||
+  hostname.endsWith('.vercel.app')
+);
 const TOKEN_KEY = 'cultcode_token';
 
 function getToken() {
