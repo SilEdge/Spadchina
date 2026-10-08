@@ -29,7 +29,6 @@ func main() {
 	}
 	addr := host + ":" + port
 	log.Println("Server starting on http://" + addr)
-	log.Println("Admin credentials: n4963959@gmail.com / admin123")
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
@@ -80,6 +79,7 @@ func newServerMux() *http.ServeMux {
 
 	// Leaderboard
 	mux.HandleFunc("/api/leaderboard", getLeaderboardHandler)
+	mux.HandleFunc("/api/people", authMiddleware(getPeopleHandler))
 
 	// Suggestions
 	mux.HandleFunc("/api/suggestions", suggestionHandler)

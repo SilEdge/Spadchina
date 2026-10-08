@@ -2,32 +2,19 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readdirSync } from 'node:fs'
 
 const projectRoot = dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   base: mode === 'github-pages' ? '/Spadchina/' : '/',
-  plugins: [
-    react(),
-    {
-      name: 'spadchyna-archive-integration',
-      transformIndexHtml: {
-        order: 'post',
-        handler() {
-          return [{ tag: 'script', attrs: { type: 'module', src: '/integration.js' }, injectTo: 'body' }]
-        },
-      },
-    },
-  ],
+  plugins: [react()],
   build: {
     rollupOptions: {
-      input: Object.fromEntries(
-        ['index', 'catalog', 'place', 'rating', 'shop', 'profile', 'battles'].map((page) => [
-          page,
-          resolve(projectRoot, `${page}.html`),
-        ]),
-      ),
+      input: Object.fromEntries(readdirSync(projectRoot)
+        .filter((file) => file.endsWith('.html'))
+        .map((file) => [file.replace(/\.html$/, ''), resolve(projectRoot, file)])),
     },
   },
   server: {

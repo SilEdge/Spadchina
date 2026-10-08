@@ -1,15 +1,33 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtKey = []byte("super-secret-jwt-key-change-in-production")
+var jwtKey = makeJWTKey()
+
+func makeJWTKey() []byte {
+	if configured := strings.TrimSpace(os.Getenv("JWT_SECRET")); configured != "" {
+		if len([]byte(configured)) < 32 {
+			log.Fatal("JWT_SECRET must contain at least 32 bytes")
+		}
+		return []byte(configured)
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		log.Fatalf("generate local JWT secret: %v", err)
+	}
+	log.Println("JWT_SECRET is unset; using an ephemeral development key")
+	return key
+}
 
 type Claims struct {
 	UserID   int    `json:"user_id"`

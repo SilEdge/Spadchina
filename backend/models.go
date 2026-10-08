@@ -67,22 +67,26 @@ type TokenResponse struct {
 
 type LeaderboardEntry struct {
 	Username       string `json:"username"`
+	Name           string `json:"name"`
 	Points         int    `json:"points"`
 	CompletedCount int    `json:"completed_count"`
 	CorrectCount   int    `json:"correct_count"`
 }
 
 type ChatMessage struct {
-	ID        int    `json:"id"`
-	Sender    string `json:"sender"`
-	Receiver  string `json:"receiver"`
-	Text      string `json:"text"`
-	IsRead    bool   `json:"is_read"`
-	CreatedAt string `json:"created_at"`
+	ID           int    `json:"id"`
+	Sender       string `json:"sender"`
+	SenderName   string `json:"sender_name"`
+	Receiver     string `json:"receiver"`
+	ReceiverName string `json:"receiver_name"`
+	Text         string `json:"text"`
+	IsRead       bool   `json:"is_read"`
+	CreatedAt    string `json:"created_at"`
 }
 
 type ChatConversation struct {
 	Username    string `json:"username"`
+	Name        string `json:"name"`
 	Points      int    `json:"points"`
 	LastMessage string `json:"last_message"`
 	LastAt      string `json:"last_at"`
@@ -102,8 +106,10 @@ type Duel struct {
 	ID              int            `json:"id"`
 	ChallengerID    int            `json:"challenger_id"`
 	Challenger      string         `json:"challenger"`
+	ChallengerName  string         `json:"challenger_name"`
 	OpponentID      int            `json:"opponent_id"`
 	Opponent        string         `json:"opponent"`
+	OpponentName    string         `json:"opponent_name"`
 	Status          string         `json:"status"`
 	QuestionSet     int            `json:"question_set"`
 	Questions       []DuelQuestion `json:"questions"`
@@ -111,6 +117,7 @@ type Duel struct {
 	OpponentScore   int            `json:"opponent_score"`
 	WinnerID        int            `json:"winner_id"`
 	Winner          string         `json:"winner"`
+	WinnerName      string         `json:"winner_name"`
 	CreatedAt       string         `json:"created_at"`
 	UpdatedAt       string         `json:"updated_at"`
 }
@@ -160,6 +167,7 @@ type TeamBattle struct {
 
 type TeamBattleParticipant struct {
 	Username     string `json:"username"`
+	Name         string `json:"name"`
 	Score        int    `json:"score"`
 	RewardPoints int    `json:"reward_points"`
 	Completed    bool   `json:"completed"`

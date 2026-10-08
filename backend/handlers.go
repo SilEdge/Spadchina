@@ -27,7 +27,7 @@ func respondError(w http.ResponseWriter, message string, status int) {
 
 func enableCORS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 }
 
@@ -128,6 +128,31 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 func meHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
 	claims := userFromContext(r.Context())
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method == http.MethodPatch {
+		var request struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			respondError(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		request.Name = strings.TrimSpace(request.Name)
+		if len([]rune(request.Name)) < 2 || len([]rune(request.Name)) > 80 {
+			respondError(w, "name must contain between 2 and 80 characters", http.StatusBadRequest)
+			return
+		}
+		if _, err := db.Exec("UPDATE users SET name = ? WHERE id = ?", request.Name, claims.UserID); err != nil {
+			respondError(w, "could not update profile", http.StatusInternalServerError)
+			return
+		}
+	} else if r.Method != http.MethodGet {
+		respondError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
 	var user User
 	err := db.QueryRow(`
@@ -274,18 +299,46 @@ func recalcPoints(userID int) {
 
 func getLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
-
-	rows, err := db.Query(`
-		SELECT u.username, u.points,
+	period := r.URL.Query().Get("period")
+	query := `
+		SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username), u.points,
 			COUNT(r.id) AS completed_count,
 			COALESCE(SUM(r.score), 0) AS correct_count
 		FROM users u
 		LEFT JOIN results r ON u.id = r.user_id
 		WHERE u.role = 'user'
 		GROUP BY u.id
+		HAVING COUNT(r.id) > 0
 		ORDER BY correct_count DESC, u.points DESC, u.username ASC
 		LIMIT 50
-	`)
+	`
+	var rows *sql.Rows
+	var err error
+	switch period {
+	case "", "all":
+		rows, err = db.Query(query)
+	case "week", "month":
+		modifier := "-7 days"
+		if period == "month" {
+			modifier = "-30 days"
+		}
+		rows, err = db.Query(`
+			SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username),
+				COALESCE(SUM(r.score * 10 + CASE WHEN r.score = r.max_score THEN 20 WHEN r.score >= r.max_score * 0.7 THEN 10 ELSE 0 END), 0) AS points,
+				COUNT(r.id) AS completed_count,
+				COALESCE(SUM(r.score), 0) AS correct_count
+			FROM users u
+			LEFT JOIN results r ON r.user_id = u.id AND r.created_at >= datetime('now', ?)
+			WHERE u.role = 'user'
+			GROUP BY u.id
+			HAVING COUNT(r.id) > 0
+			ORDER BY correct_count DESC, points DESC, u.username ASC
+			LIMIT 50
+		`, modifier)
+	default:
+		respondError(w, "period must be week, month or all", http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
 		return
@@ -295,7 +348,7 @@ func getLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
 	entries := []LeaderboardEntry{}
 	for rows.Next() {
 		var e LeaderboardEntry
-		if err := rows.Scan(&e.Username, &e.Points, &e.CompletedCount, &e.CorrectCount); err != nil {
+		if err := rows.Scan(&e.Username, &e.Name, &e.Points, &e.CompletedCount, &e.CorrectCount); err != nil {
 			continue
 		}
 		entries = append(entries, e)
@@ -304,12 +357,45 @@ func getLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, entries, http.StatusOK)
 }
 
+// getPeopleHandler exposes only the public fields needed to start a chat or duel.
+func getPeopleHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w, r)
+	if r.Method != http.MethodGet {
+		respondError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	claims := userFromContext(r.Context())
+	rows, err := db.Query(`
+		SELECT id, username, COALESCE(name, username), points
+		FROM users WHERE id != ? AND role = 'user'
+		ORDER BY points DESC, username ASC LIMIT 100
+	`, claims.UserID)
+	if err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	people := []map[string]interface{}{}
+	for rows.Next() {
+		var id, points int
+		var username, name string
+		if err := rows.Scan(&id, &username, &name, &points); err != nil {
+			continue
+		}
+		people = append(people, map[string]interface{}{
+			"id": id, "username": username, "name": name, "points": points,
+		})
+	}
+	respondJSON(w, people, http.StatusOK)
+}
+
 func getConversationsHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
 	claims := userFromContext(r.Context())
 
 	rows, err := db.Query(`
-		SELECT u.username, u.points,
+		SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username), u.points,
 			COALESCE((
 				SELECT m.text
 				FROM messages m
@@ -344,7 +430,7 @@ func getConversationsHandler(w http.ResponseWriter, r *http.Request) {
 	conversations := []ChatConversation{}
 	for rows.Next() {
 		var item ChatConversation
-		if err := rows.Scan(&item.Username, &item.Points, &item.LastMessage, &item.LastAt, &item.UnreadCount); err != nil {
+		if err := rows.Scan(&item.Username, &item.Name, &item.Points, &item.LastMessage, &item.LastAt, &item.UnreadCount); err != nil {
 			continue
 		}
 		conversations = append(conversations, item)
@@ -383,7 +469,8 @@ func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	db.Exec("UPDATE messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ?", peerID, claims.UserID)
 
 	rows, err := db.Query(`
-		SELECT m.id, su.username, ru.username, m.text, m.is_read, m.created_at
+		SELECT m.id, su.username, COALESCE(NULLIF(su.name, ''), su.username),
+			ru.username, COALESCE(NULLIF(ru.name, ''), ru.username), m.text, m.is_read, m.created_at
 		FROM messages m
 		JOIN users su ON su.id = m.sender_id
 		JOIN users ru ON ru.id = m.receiver_id
@@ -401,7 +488,7 @@ func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var msg ChatMessage
 		var readInt int
-		if err := rows.Scan(&msg.ID, &msg.Sender, &msg.Receiver, &msg.Text, &readInt, &msg.CreatedAt); err != nil {
+		if err := rows.Scan(&msg.ID, &msg.Sender, &msg.SenderName, &msg.Receiver, &msg.ReceiverName, &msg.Text, &readInt, &msg.CreatedAt); err != nil {
 			continue
 		}
 		msg.IsRead = readInt == 1
@@ -511,9 +598,10 @@ func duelsHandler(w http.ResponseWriter, r *http.Request) {
 func getDuelsHandler(w http.ResponseWriter, r *http.Request) {
 	claims := userFromContext(r.Context())
 	rows, err := db.Query(`
-		SELECT d.id, d.challenger_id, cu.username, d.opponent_id, ou.username,
+		SELECT d.id, d.challenger_id, cu.username, COALESCE(NULLIF(cu.name, ''), cu.username),
+			d.opponent_id, ou.username, COALESCE(NULLIF(ou.name, ''), ou.username),
 			d.status, d.question_set, d.questions, d.challenger_score, d.opponent_score,
-			COALESCE(d.winner_id, 0), COALESCE(wu.username, ''),
+			COALESCE(d.winner_id, 0), COALESCE(wu.username, ''), COALESCE(NULLIF(wu.name, ''), wu.username, ''),
 			d.created_at, d.updated_at
 		FROM duels d
 		JOIN users cu ON cu.id = d.challenger_id
@@ -769,9 +857,10 @@ func finishDuelHandler(w http.ResponseWriter, r *http.Request, duelID int) {
 
 func getDuelForUser(duelID int, userID int) (Duel, bool) {
 	row := db.QueryRow(`
-		SELECT d.id, d.challenger_id, cu.username, d.opponent_id, ou.username,
+		SELECT d.id, d.challenger_id, cu.username, COALESCE(NULLIF(cu.name, ''), cu.username),
+			d.opponent_id, ou.username, COALESCE(NULLIF(ou.name, ''), ou.username),
 			d.status, d.question_set, d.questions, d.challenger_score, d.opponent_score,
-			COALESCE(d.winner_id, 0), COALESCE(wu.username, ''),
+			COALESCE(d.winner_id, 0), COALESCE(wu.username, ''), COALESCE(NULLIF(wu.name, ''), wu.username, ''),
 			d.created_at, d.updated_at
 		FROM duels d
 		JOIN users cu ON cu.id = d.challenger_id
@@ -795,8 +884,10 @@ func scanDuel(scanner duelScanner) (Duel, bool) {
 		&duel.ID,
 		&duel.ChallengerID,
 		&duel.Challenger,
+		&duel.ChallengerName,
 		&duel.OpponentID,
 		&duel.Opponent,
+		&duel.OpponentName,
 		&duel.Status,
 		&duel.QuestionSet,
 		&questionsRaw,
@@ -804,6 +895,7 @@ func scanDuel(scanner duelScanner) (Duel, bool) {
 		&duel.OpponentScore,
 		&duel.WinnerID,
 		&duel.Winner,
+		&duel.WinnerName,
 		&duel.CreatedAt,
 		&duel.UpdatedAt,
 	)
@@ -1195,7 +1287,7 @@ func getTeamBattleByCode(code string) (TeamBattle, bool) {
 
 func getTeamBattleParticipants(battleID int) []TeamBattleParticipant {
 	rows, err := db.Query(`
-		SELECT u.username, tbp.score, tbp.reward_points, tbp.updated_at
+		SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username), tbp.score, tbp.reward_points, tbp.updated_at
 		FROM team_battle_participants tbp
 		JOIN users u ON u.id = tbp.user_id
 		WHERE tbp.battle_id = ?
@@ -1209,7 +1301,7 @@ func getTeamBattleParticipants(battleID int) []TeamBattleParticipant {
 	participants := []TeamBattleParticipant{}
 	for rows.Next() {
 		var item TeamBattleParticipant
-		if err := rows.Scan(&item.Username, &item.Score, &item.RewardPoints, &item.UpdatedAt); err == nil {
+		if err := rows.Scan(&item.Username, &item.Name, &item.Score, &item.RewardPoints, &item.UpdatedAt); err == nil {
 			item.Completed = item.Score >= 0
 			participants = append(participants, item)
 		}

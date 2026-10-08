@@ -91,6 +91,8 @@ func TestServerWorkflow(t *testing.T) {
 		_ = db.Close()
 	}
 	t.Setenv("DATABASE_PATH", filepath.Join(t.TempDir(), "test.db"))
+	t.Setenv("ADMIN_EMAIL", "admin@example.test")
+	t.Setenv("ADMIN_PASSWORD", "test-admin-password-123")
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("TELEGRAM_IDEAS_BOT_TOKEN", "")
 	initDB()
@@ -111,10 +113,39 @@ func TestServerWorkflow(t *testing.T) {
 
 	first := registerTestUser(t, client, server.URL, "Alpha", "alpha@example.test")
 	second := registerTestUser(t, client, server.URL, "Beta", "beta@example.test")
+	var people []struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/people", first.Token, nil, http.StatusOK, &people)
+	if len(people) != 1 || people[0].Username != second.User.Username || people[0].Email != "" {
+		t.Fatalf("people endpoint should return only other users' public fields: %+v", people)
+	}
+	var emptyRanking []LeaderboardEntry
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/leaderboard?period=all", "", nil, http.StatusOK, &emptyRanking)
+	if len(emptyRanking) != 0 {
+		t.Fatalf("users without completed tasks should not appear in leaderboard: %+v", emptyRanking)
+	}
+	var updatedProfile User
+	requestJSON(t, client, http.MethodPatch, server.URL+"/api/me", first.Token, map[string]string{"name": "Alpha Updated"}, http.StatusOK, &updatedProfile)
+	if updatedProfile.Name != "Alpha Updated" {
+		t.Fatalf("profile name was not saved: %+v", updatedProfile)
+	}
+	requestJSON(t, client, http.MethodPatch, server.URL+"/api/me", first.Token, map[string]string{"name": "x"}, http.StatusBadRequest, nil)
+	for _, period := range []string{"week", "month", "all"} {
+		var ranking []LeaderboardEntry
+		requestJSON(t, client, http.MethodGet, server.URL+"/api/leaderboard?period="+period, "", nil, http.StatusOK, &ranking)
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/leaderboard?period=year", "", nil, http.StatusBadRequest, nil)
 
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/chat/messages", first.Token, map[string]string{
 		"to": second.User.Username, "text": "Проверка чата",
 	}, http.StatusCreated, nil)
+	var messages []ChatMessage
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/chat/messages?peer="+second.User.Username, first.Token, nil, http.StatusOK, &messages)
+	if len(messages) != 1 || messages[0].SenderName != "Alpha Updated" || messages[0].ReceiverName != second.User.Name {
+		t.Fatalf("chat should use saved profile names: %+v", messages)
+	}
 	var unread UnreadResponse
 	requestJSON(t, client, http.MethodGet, server.URL+"/api/chat/unread", second.Token, nil, http.StatusOK, &unread)
 	if unread.UnreadCount != 1 {
@@ -130,6 +161,9 @@ func TestServerWorkflow(t *testing.T) {
 	requestJSON(t, client, http.MethodPost, fmt.Sprintf("%s/api/duels/%d/accept", server.URL, duelCreated.ID), second.Token, nil, http.StatusOK, nil)
 	var duel Duel
 	requestJSON(t, client, http.MethodGet, fmt.Sprintf("%s/api/duels/%d", server.URL, duelCreated.ID), first.Token, nil, http.StatusOK, &duel)
+	if duel.ChallengerName != "Alpha Updated" || duel.OpponentName != second.User.Name {
+		t.Fatalf("duel should use saved profile names: %+v", duel)
+	}
 	if len(duel.Questions) != 10 {
 		t.Fatalf("duel has %d questions", len(duel.Questions))
 	}
@@ -159,6 +193,13 @@ func TestServerWorkflow(t *testing.T) {
 	if len(battle.Participants) != 2 {
 		t.Fatalf("team battle has %d participants", len(battle.Participants))
 	}
+	participantNames := map[string]bool{}
+	for _, participant := range battle.Participants {
+		participantNames[participant.Name] = true
+	}
+	if !participantNames["Alpha Updated"] || !participantNames[second.User.Name] {
+		t.Fatalf("team battle should use saved profile names: %+v", battle.Participants)
+	}
 
 	var savedSuggestion map[string]interface{}
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/suggestions", "", SuggestionRequest{
@@ -170,7 +211,7 @@ func TestServerWorkflow(t *testing.T) {
 
 	var admin testSession
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/login", "", LoginRequest{
-		Email: "n4963959@gmail.com", Password: "admin123",
+		Email: "admin@example.test", Password: "test-admin-password-123",
 	}, http.StatusOK, &admin)
 	article := ArticleInput{
 		Title: "Тестовый материал", Category: "history", CategoryLabel: "История",
@@ -192,6 +233,8 @@ func TestAtlasPersistenceAndRewards(t *testing.T) {
 		_ = db.Close()
 	}
 	t.Setenv("DATABASE_PATH", filepath.Join(t.TempDir(), "atlas-test.db"))
+	t.Setenv("ADMIN_EMAIL", "admin@example.test")
+	t.Setenv("ADMIN_PASSWORD", "test-admin-password-123")
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("TELEGRAM_IDEAS_BOT_TOKEN", "")
 	initDB()

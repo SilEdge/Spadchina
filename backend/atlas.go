@@ -145,7 +145,17 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	respondJSON(w, readAtlasData(), http.StatusOK)
+	data := readAtlasData()
+	for i := range data.Categories {
+		count := 0
+		for _, place := range data.Places {
+			if place.Cat == data.Categories[i].ID {
+				count++
+			}
+		}
+		data.Categories[i].Count = count
+	}
+	respondJSON(w, data, http.StatusOK)
 }
 
 func saveAtlasResultHandler(w http.ResponseWriter, r *http.Request) {

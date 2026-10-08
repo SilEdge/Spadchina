@@ -201,8 +201,16 @@ func normalizeArticleImages() {
 }
 
 func createAdmin() {
-	const adminEmail = "n4963959@gmail.com"
-	const adminPassword = "admin123"
+	adminEmail := strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	if adminEmail == "" || adminPassword == "" {
+		log.Println("Admin account setup skipped: set ADMIN_EMAIL and ADMIN_PASSWORD to configure it")
+		return
+	}
+	if len(adminPassword) < 12 {
+		log.Println("Admin account setup skipped: ADMIN_PASSWORD must be at least 12 characters")
+		return
+	}
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
 	result, err := db.Exec(`
@@ -224,5 +232,4 @@ func createAdmin() {
 		}
 	}
 
-	log.Printf("Admin email: %s, password: %s", adminEmail, adminPassword)
 }
