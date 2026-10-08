@@ -207,11 +207,13 @@ export default function Header({ activeTab, setActiveTab, onLoginOpen, onOpenCha
   }
 
   return (
+    <>
+    <div className="ornament-band" />
     <header className="header">
       <div className="container header-inner">
         <div className="logo" onClick={() => setActiveTab('home')}>
           <span className="logo-icon">
-            <Icon name="map" size={22} />
+            <img src="/design/logo-woven.png" alt="" />
           </span>
           <span className="logo-text">Спадчына</span>
         </div>
@@ -382,5 +384,6 @@ export default function Header({ activeTab, setActiveTab, onLoginOpen, onOpenCha
         </div>
       </div>
     </header>
+    </>
   );
 }

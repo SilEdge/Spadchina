@@ -129,7 +129,7 @@ export default function App() {
 
     switch (activeTab) {
       case 'home':
-        return <Hero onStart={handleStart} onSelectArticle={handleSelectArticle} />;
+        return <Hero onStart={handleStart} onSelectArticle={handleSelectArticle} onNavigate={handleTabChange} />;
       case 'library':
         return <ArticleLibrary onSelect={handleSelectArticle} />;
       case 'progress':
@@ -149,7 +149,7 @@ export default function App() {
       case 'admin':
         return <AdminPanel />;
       default:
-        return <Hero onStart={handleStart} />;
+        return <Hero onStart={handleStart} onNavigate={handleTabChange} />;
     }
   };
 

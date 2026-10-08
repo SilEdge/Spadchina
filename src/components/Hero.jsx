@@ -2,329 +2,161 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { articles as localArticles } from '../data/articles.js';
 import { useUser } from '../contexts/UserContext.jsx';
-
+import HeritageAtlas from './HeritageAtlas.jsx';
 import Icon from './Icon.jsx';
 
-const categoryMeta = {
-  history: { label: 'История', icon: 'history' },
-  culture: { label: 'Культура', icon: 'culture' },
-  nature: { label: 'Природа', icon: 'nature' },
-  traditions: { label: 'Традиции', icon: 'traditions' },
-  architecture: { label: 'Архитектура', icon: 'architecture' },
-  memorial: { label: 'Память', icon: 'memorial' },
-};
+const categories = [
+  { id: 'history', label: 'История' },
+  { id: 'culture', label: 'Культура' },
+  { id: 'nature', label: 'Природа' },
+  { id: 'traditions', label: 'Традиции' },
+  { id: 'architecture', label: 'Архитектура' },
+  { id: 'memorial', label: 'Память' },
+];
 
 const steps = [
-  { title: 'Найди место', text: 'Выбери памятник, музей, природный уголок или историю родного края.' },
-  { title: 'Открой его историю', text: 'Изучи факты, культурный контекст и то, чем место живёт сегодня.' },
-  { title: 'Передай знание дальше', text: 'Проверь себя в задании, поделись открытием и продолжи маршрут.' },
+  ['Найди место', 'Памятник, музей, озеро или обряд родного края.'],
+  ['Открой историю', 'Факты, контекст и то, чем место живёт сегодня.'],
+  ['Передай дальше', 'Пройди задание, получи баллы, вызови друга.'],
 ];
 
 const localArticleByTitle = new Map(localArticles.map((article) => [article.title, article]));
-
 const isPublicArticle = (article) => !article.title?.startsWith('Командные вопросы:');
 
 function parseArticle(article) {
   const localArticle = localArticleByTitle.get(article.title);
-
   return {
     ...article,
     content: typeof article.content === 'string' ? JSON.parse(article.content || '[]') : article.content,
-    questions: localArticle?.questions || (
-      typeof article.questions === 'string' ? JSON.parse(article.questions || '[]') : article.questions
-    ),
+    questions: localArticle?.questions || (typeof article.questions === 'string' ? JSON.parse(article.questions || '[]') : article.questions),
     questionSets: localArticle?.questionSets,
     image: localArticle?.image || article.image,
   };
 }
 
-export default function Hero({ onStart, onSelectArticle }) {
+function findPlace(articles, text) {
+  return articles.find((article) => article.title.toLocaleLowerCase().includes(text.toLocaleLowerCase()));
+}
+
+function Mono({ children, className = '' }) {
+  return <span className={`design-mono ${className}`}>{children}</span>;
+}
+
+export default function Hero({ onStart, onSelectArticle, onNavigate }) {
   const { user } = useUser();
   const [articles, setArticles] = useState(localArticles);
-  const totalQuestions = articles.reduce(
-    (sum, article) => sum + (article.questionSets?.flat().length || article.questions?.length || 0),
-    0,
-  );
-  const featuredPlaces = useMemo(() => articles.slice(-3).reverse(), [articles]);
-  const placeOfDay = useMemo(
-    () => articles[new Date().getDate() % articles.length] || articles[0],
-    [articles]
-  );
+  const [activeCategory, setActiveCategory] = useState('');
+  const totalQuestions = articles.reduce((sum, article) => sum + (article.questionSets?.flat().length || article.questions?.length || 0), 0);
+  const braslav = useMemo(() => findPlace(articles, 'Браславские озёра'), [articles]);
 
   useEffect(() => {
     let ignore = false;
-
-    api.getArticles()
-      .then((data) => {
-        if (!ignore && Array.isArray(data) && data.length) {
-          const parsed = data.filter(isPublicArticle).map(parseArticle);
-          setArticles(parsed.length ? parsed : localArticles);
-        }
-      })
-      .catch(() => {
-        if (!ignore) setArticles(localArticles);
-      });
-
-    return () => {
-      ignore = true;
-    };
+    api.getArticles().then((data) => {
+      if (!ignore && Array.isArray(data) && data.length) {
+        const parsed = data.filter(isPublicArticle).map(parseArticle);
+        setArticles(parsed.length ? parsed : localArticles);
+      }
+    }).catch(() => {
+      if (!ignore) setArticles(localArticles);
+    });
+    return () => { ignore = true; };
   }, []);
 
+  const chooseCategory = (category) => {
+    setActiveCategory(category);
+    document.getElementById('atlas')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
-    <>
-      <section className="hero">
-        <div className="container hero-content">
-          <div className="hero-text">
-            {user && <span className="hero-welcome">Привет,{' '}{user.name || user.username}</span>}
-            <span className="hero-label">Цифровой маршрут по малой родине</span>
-            <h1>Малая родина — в объективе технологий</h1>
-            <p className="hero-subtitle">
-              Открывай Беларусь через истории её мест: от старинных замков и храмов
-              до истории городов и деревень, природных уголков и живых традиций.
-            </p>
-            <div className="hero-actions">
-              <button className="btn-primary btn-large" onClick={onStart}>
-                Пройти маршрут
-              </button>
-              <button className="btn-ghost btn-large" onClick={onStart}>
-                Открыть каталог мест
-              </button>
-            </div>
-          </div>
-
-          <div className="hero-spotlight">
-            <span className="spotlight-label">Кадр из цифрового маршрута · место дня</span>
-            <article
-              className="spotlight-card"
-              style={{ backgroundImage: `url("${placeOfDay.image}")` }}
-            >
-              <div>
-                <span className={`badge badge-${placeOfDay.category}`}>{placeOfDay.categoryLabel}</span>
-                <h3>{placeOfDay.title}</h3>
-                <p>{placeOfDay.region}</p>
-              </div>
-            </article>
-          </div>
-        </div>
-
-        <div className="hero-metrics">
-          <div className="container metrics-inner">
-            <div className="metric">
-              <strong>{articles.length}</strong>
-              <span>достопримечательностей</span>
-            </div>
-            <div className="metric">
-              <strong>{totalQuestions}</strong>
-              <span>заданий в каталоге</span>
-            </div>
-            <div className="metric">
-              <strong>6</strong>
-              <span>направлений</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="contest-ribbon" aria-label="Концепция проекта">
-        <div className="container contest-ribbon-inner">
-          <span className="contest-ribbon-mark" aria-hidden="true">С</span>
-          <div>
-            <span className="contest-ribbon-kicker">Концепция проекта</span>
-            <p>
-              Номинация «Судьба малой родины в объективе технологий» ·
-              цифровой атлас, который помогает изучать, беречь и передавать
-              историю родного края.
-            </p>
-          </div>
-          <span className="contest-ribbon-stamp">ПАМЯТЬ<br />МЕСТО<br />ЛЮДИ</span>
-        </div>
-      </section>
-
-      <section className="home-section categories-section">
-        <div className="container">
-          <div className="section-head section-head-center">
-            <span className="section-kicker">Категории</span>
-            <h2 className="section-title">Выбери направление</h2>
-          </div>
-          <div className="categories-grid clean">
-            {Object.entries(categoryMeta).map(([key, meta]) => (
-              <button
-                key={key}
-                className="category-card clean"
-                onClick={onStart}
-              >
-                <span className="category-emoji"><Icon name={meta.icon} size={22} /></span>
-                <div>
-                  <strong>{meta.label}</strong>
-                  <span>{articles.filter((a) => a.category === key).length} мест</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="home-section featured-section">
-        <div className="container">
-          <div className="section-head">
-            <div>
-              <span className="section-kicker">Популярное</span>
-              <h2 className="section-title">С чего начать</h2>
-            </div>
-          </div>
-
-          <div className="featured-grid">
-            {featuredPlaces.map((place) => (
-              <article
-                className="featured-card"
-                key={place.id}
-                style={{ backgroundImage: `url("${place.image}")` }}
-                onClick={() => onSelectArticle?.(place)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onSelectArticle?.(place);
-                  }
-                }}
-              >
-                <div>
-                  <span className={`badge badge-${place.category}`}>{place.categoryLabel}</span>
-                  <h3>{place.title}</h3>
-                  <p>{place.region} · {place.questions.length} заданий</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="home-section steps-section">
-        <div className="container">
-          <div className="section-head section-head-center">
-            <span className="section-kicker">Как это работает</span>
-            <h2 className="section-title">От первой точки — к своей истории</h2>
-          </div>
-          <div className="steps-grid clean">
-            {steps.map((step, index) => (
-              <div key={index} className="step-card clean">
-                <span className="step-number">0{index + 1}</span>
-                <strong>{step.title}</strong>
-                <p>{step.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="home-section about-section">
-        <div className="container">
-          <div className="section-head section-head-center">
-            <span className="section-kicker">О проекте</span>
-            <h2 className="section-title">Спадчына — это живая история рядом</h2>
-          </div>
-          <div className="about-grid">
-            <div className="about-card">
-              <span className="about-icon"><Icon name="pin" size={32} /></span>
-              <strong>Более {articles.length} мест</strong>
-              <p>
-                Замки, храмы, памятники, заповедники и музеи — каждая статья
-                рассказывает историю конкретного места с ключевыми фактами.
-              </p>
-            </div>
-            <div className="about-card">
-              <span className="about-icon"><Icon name="puzzle" size={32} /></span>
-              <strong>Интерактивные задания</strong>
-              <p>
-                После прочтения статьи проходи викторину, проверяй знания и
-                получай баллы за правильные ответы.
-              </p>
-            </div>
-            <div className="about-card">
-              <span className="about-icon"><Icon name="trophy" size={32} /></span>
-              <strong>Рейтинг и достижения</strong>
-              <p>
-                Соревнуйся с другими участниками в таблице лидеров, зарабатывай
-                достижения и покупай награды в магазине.
-              </p>
-            </div>
-            <div className="about-card">
-              <span className="about-icon"><Icon name="users" size={32} /></span>
-              <strong>Общение и батлы</strong>
-              <p>
-                Обсуждай прочитанное в чате, бросай друзьям культурные дуэли и
-                участвуй в командных батлах.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="home-section facts-section">
-        <div className="container">
-          <div className="section-head section-head-center">
-            <span className="section-kicker">Знаешь ли ты</span>
-            <h2 className="section-title">Беларусь в цифрах и фактах</h2>
-          </div>
-          <div className="facts-grid">
-            <div className="fact-card">
-              <strong>4</strong>
-              <span>объекта Всемирного наследия ЮНЕСКО</span>
-            </div>
-            <div className="fact-card">
-              <strong>10 000+</strong>
-              <span>озёр на территории страны</span>
-            </div>
-            <div className="fact-card">
-              <strong>40%</strong>
-              <span>территории покрыто лесами</span>
-            </div>
-            <div className="fact-card">
-              <strong>1000+</strong>
-              <span>лет истории Полоцка</span>
-            </div>
-            <div className="fact-card">
-              <strong>11</strong>
-              <span>миллионов жителей</span>
-            </div>
-            <div className="fact-card">
-              <strong>3</strong>
-              <span>языка в повседневном употреблении</span>
-            </div>
-          </div>
-          <p className="facts-note">
-            Это лишь малая часть того, что делает Беларусь уникальной. В
-            «Спадчыне» мы собираем самые интересные истории и помогаем узнать
-            родной край лучше.
-          </p>
-        </div>
-      </section>
-
-      <section className="home-section mission-section">
-        <div className="container mission-inner">
-          <div className="mission-text">
-            <span className="section-kicker">Наша миссия</span>
-            <h2 className="section-title">Сохранять и приумножать знания о Беларуси</h2>
-            <p>
-              Мы верим, что культурная память начинается с любопытства. Чем
-              больше мы знаем о своей стране, тем бережнее относимся к её
-              истории, природе и людям. «Спадчына» помогает сделать это в
-              удобной, современной и увлекательной форме.
-            </p>
-            <button className="btn-primary btn-large" onClick={onStart}>
-              Начать изучение
+    <div className="heritage-home">
+      <section className="home-topline">
+        <div className="home-cover">
+          <img src="/design/lakes.jpg" alt="Браславские озёра с высоты" />
+          <div className="home-cover-shade" />
+          <div className="home-cover-copy container">
+            {user && <p className="home-welcome">С возвращением, {user.name || user.username}</p>}
+            <h1>Спадчына</h1>
+            <p className="home-cover-title">Малая<br /><span>родина</span></p>
+            <p className="home-cover-caption">в объективе технологий</p>
+            <button className="home-cover-place" onClick={() => braslav && onSelectArticle(braslav)}>
+              Браславские озёра <span aria-hidden="true">↗</span>
             </button>
           </div>
-          <div className="mission-quote">
-            <blockquote>
-              «Кто не знает прошлого, тот не стоит на прочном основании для
-              будущего».
-            </blockquote>
-            <cite>— Франциск Скорина</cite>
+        </div>
+
+        <div className="container home-intro">
+          <p className="home-intro-text">Открывай Беларусь через истории её мест — от замков и храмов до деревень, озёр и живых традиций. Читай, отвечай, собирай баллы.</p>
+          <div className="home-intro-actions">
+            <button className="home-action-primary" onClick={onStart}>Пройти маршрут <span aria-hidden="true">→</span></button>
+            <button className="home-action-link" onClick={onStart}>Каталог мест</button>
           </div>
         </div>
+
+        <dl className="home-stats" aria-label="Атлас в цифрах">
+          <div><dt>{articles.length}</dt><dd>мест</dd></div>
+          <div><dt>{totalQuestions.toLocaleString('ru-RU')}</dt><dd>заданий</dd></div>
+          <div><dt>06</dt><dd>направлений</dd></div>
+        </dl>
       </section>
-    </>
+
+      <section className="home-directions container">
+        <div className="home-section-heading">
+          <h2>Шесть нитей одного узора</h2>
+          <p>Выбери направление — атлас покажет места, связанные с ним.</p>
+        </div>
+        <ul className="home-category-list">
+          {categories.map((category, index) => {
+            const count = articles.filter((article) => article.category === category.id).length;
+            return (
+              <li key={category.id}>
+                <button className="home-category-row" onClick={() => chooseCategory(category.id)}>
+                  <Mono>0{index + 1}</Mono>
+                  <span className="home-category-name">{category.label}</span>
+                  <span className="home-category-count"><Mono>{count} мест</Mono><span className="home-category-arrow" aria-hidden="true">↗</span></span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <HeritageAtlas articles={articles} activeCategory={activeCategory} onSelect={onSelectArticle} onOpenCatalog={onStart} />
+
+      <section className="home-how container">
+        <div className="home-step-grid">
+          {steps.map(([title, description], index) => (
+            <article className="home-step" key={title} style={{ '--step-offset': `${index * 4}rem` }}>
+              <span className="home-step-number">0{index + 1}</span>
+              <h3>{title}</h3>
+              <p>{description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="home-together container">
+        <div className="home-bento">
+          <button className="home-bento-team" onClick={() => onNavigate?.('teams')}>
+            <Mono>Вместе</Mono>
+            <span className="home-bento-team-bottom"><Icon name="users" size={40} /><span><strong>Командные батлы</strong><small>Соберите класс или клуб и пройдите маршрут вместе.</small></span></span>
+            <span className="home-bento-arrow" aria-hidden="true">↗</span>
+          </button>
+          <button className="home-bento-duel" onClick={() => onNavigate?.('duels')}>
+            <span><Icon name="swords" size={32} /><strong>Дуэли 1 на 1</strong></span><span aria-hidden="true">↗</span>
+          </button>
+          <button className="home-bento-chat" onClick={() => onNavigate?.('chat')}>
+            <span><Icon name="chat" size={32} /><strong>Чат</strong></span><span aria-hidden="true">↗</span>
+          </button>
+        </div>
+      </section>
+
+      <section className="home-quote">
+        <img src="/design/lakes.jpg" alt="" loading="lazy" />
+        <div className="home-quote-shade" />
+        <blockquote className="container">«Кто не знает прошлого, тот не стоит на прочном основании для будущего».
+          <footer><Mono>— Франциск Скорина</Mono></footer>
+        </blockquote>
+      </section>
+    </div>
   );
 }
