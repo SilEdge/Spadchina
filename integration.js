@@ -111,6 +111,15 @@ async function syncPendingResults() {
   else localStorage.removeItem(PENDING_KEY);
 }
 
+function queuePendingResult(result) {
+  try {
+    const pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
+    localStorage.setItem(PENDING_KEY, JSON.stringify([...pending.filter((item) => item.slug !== result.slug), result]));
+  } catch {
+    localStorage.setItem(PENDING_KEY, JSON.stringify([result]));
+  }
+}
+
 async function installAuth() {
   document.querySelectorAll('header .mobile-header-actions > button:not(.mobile-menu-toggle), header > div > button').forEach((button) => {
     if (button.textContent.trim() !== 'Войти') return;
@@ -259,7 +268,11 @@ async function installPlaceQuiz() {
   if (!card) return;
   let questions;
   try { questions = (await getAtlas()).quizzes?.[slug]; }
-  catch (error) { status(card, `Не удалось загрузить вопросы: ${error.message}`, true); return; }
+  catch {
+    // The archive ships with the same quiz bank, so a temporary API outage must not block the task.
+    questions = window.SP?.q?.[slug];
+  }
+  if (!questions?.length) questions = window.SP?.q?.[slug];
   if (!questions?.length) { status(card, 'Для этого места пока нет заданий.', true); return; }
   let index = 0; let score = 0;
   const draw = (feedback = '') => {
@@ -268,11 +281,15 @@ async function installPlaceQuiz() {
       card.querySelector('button').onclick = () => { index = 0; score = 0; draw(); };
       const result = { slug, score, max_score: questions.length };
       if (!token()) {
-        try { const pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); localStorage.setItem(PENDING_KEY, JSON.stringify([...pending.filter((item) => item.slug !== slug), result])); }
-        catch { localStorage.setItem(PENDING_KEY, JSON.stringify([result])); }
+        queuePendingResult(result);
         return;
       }
-      api('/atlas/results', { method: 'POST', body: JSON.stringify(result) }).then(() => { card.querySelector('p:nth-of-type(2)').textContent = 'Результат сохранён в базе данных. Баллы добавлены в профиль.'; }).catch((error) => status(card, `Не удалось сохранить результат: ${error.message}`, true));
+      api('/atlas/results', { method: 'POST', body: JSON.stringify(result) })
+        .then(() => { card.querySelector('p:nth-of-type(2)').textContent = 'Результат сохранён в базе данных. Баллы добавлены в профиль.'; })
+        .catch(() => {
+          queuePendingResult(result);
+          card.querySelector('p:nth-of-type(2)').textContent = 'Сервер временно недоступен. Результат сохранён на устройстве и будет отправлен при следующем входе.';
+        });
       return;
     }
     const question = questions[index];
