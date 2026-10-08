@@ -1654,6 +1654,7 @@ em { font-style: normal; }
 
 /* API-powered controls used by the database-backed pages. */
 .backend-status { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); font-size: 14px; }
+.backend-status:empty { display: none; }
 .backend-status[data-error="true"] { border-color: #e5b5b2; background: #fff0ef; color: #8b1b16; }
 .backend-auth-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(12 24 38 / 54%); }
 .backend-auth-card { position: relative; width: min(100%, 440px); padding: 32px; background: var(--background); box-shadow: 0 24px 80px rgb(12 24 38 / 28%); }
