@@ -268,7 +268,7 @@ func getProgressHandler(w http.ResponseWriter, r *http.Request) {
 
 func recalcPoints(userID int) {
 	var total int
-	db.QueryRow("SELECT COALESCE(SUM(score * 10 + CASE WHEN score = max_score THEN 20 WHEN score >= max_score * 0.7 THEN 10 ELSE 0 END), 0) FROM results WHERE user_id = ?", userID).Scan(&total)
+	db.QueryRow(`SELECT MAX(0, COALESCE((SELECT SUM(score * 10 + CASE WHEN score = max_score THEN 20 WHEN score >= max_score * 0.7 THEN 10 ELSE 0 END) FROM results WHERE user_id = ?), 0) - COALESCE((SELECT SUM(ri.cost) FROM user_rewards ur JOIN reward_items ri ON ri.id=ur.reward_id WHERE ur.user_id = ?), 0))`, userID, userID).Scan(&total)
 	db.Exec("UPDATE users SET points = ? WHERE id = ?", total, userID)
 }
 
@@ -1018,8 +1018,8 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	questionCount := req.QuestionCount
-	if questionCount < 10 || questionCount > 30 {
-		respondError(w, "question count must be from 10 to 30", http.StatusBadRequest)
+	if questionCount < 5 || questionCount > 30 {
+		respondError(w, "question count must be from 5 to 30", http.StatusBadRequest)
 		return
 	}
 

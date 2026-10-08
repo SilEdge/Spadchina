@@ -1,0 +1,12 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Батлы — Спадчына</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;600&family=JetBrains+Mono:wght@600&display=swap">
+<link rel="stylesheet" href="style.css"></head><body>
+<div class="wrap"><div class="ph"><h1>Командные батлы</h1><p>Создайте комнату и играйте вместе на одном экране (для игры по коду между устройствами нужен свой сервер).</p></div>
+<div class="q" id="bx" style="max-width:720px"><label>Категория<select id="c"></select></label><br><br><label>Вопросов<select id="n"><option>5</option><option>10</option><option>15</option></select></label><br><br><button class="btn" onclick="go()">Создать код и начать</button></div></div>
+<script src="data.js"></script><script src="app.js"></script>
+<script>c.innerHTML='<option value="">Все</option>'+D.categories.map(x=>`<option value="${x.id}">${x.name}</option>`).join("");
+let Q=[],i=0,s=0,code;function go(){code=100000+Math.floor(Math.random()*9e5);Q=D.places.filter(p=>!c.value||p.cat===c.value).flatMap(p=>D.quizzes[p.id]||[]).sort(()=>Math.random()-.5).slice(0,+n.value);i=0;s=0;step()}
+function step(){if(i>=Q.length){bx.innerHTML=`<h3>Итог: ${s} очков</h3><button class="btn" onclick="location.reload()">Ещё раз</button>`;return}const q=Q[i];
+bx.innerHTML=`<p class="meta">Комната ${code} · вопрос ${i+1}/${Q.length} · очки ${s}</p><h3>${q.q}</h3><div class="ans">${q.a.map((a,k)=>`<button onclick="pick(${k},this)">${a}</button>`).join("")}</div><p id="ex" style="margin-top:14px"></p>`}
+function pick(k,b){const bs=bx.querySelectorAll(".ans button");if(bs[0].disabled)return;bs.forEach(x=>x.disabled=true);bs[Q[i].ok].classList.add("ok");if(k===Q[i].ok)s+=500;else b.classList.add("bad");
+ex.innerHTML=Q[i].explanation+'<br><br><button class="btn" onclick="i++;step()">Дальше</button>'}</script></body></html>

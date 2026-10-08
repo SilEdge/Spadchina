@@ -18,6 +18,7 @@ dist-ssr
 backend/*.db
 backend/*.log
 backend/cultcode-backend
+tmp/atlas-preview.db
 
 # Python virtual environments and generated files
 .venv*/

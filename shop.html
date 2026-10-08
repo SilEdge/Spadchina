@@ -1,0 +1,6 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Награды — Спадчына</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;600&family=JetBrains+Mono:wght@600&display=swap">
+<link rel="stylesheet" href="style.css"></head><body>
+<div class="wrap"><div class="ph"><h1>Награды за знания</h1><p>Обменивайте баллы на значки и рамки профиля.</p></div><div class="grid" id="g"></div></div>
+<script src="data.js"></script><script src="app.js"></script>
+<script>g.innerHTML=[["🖼","Рамка «Слуцкий пояс»",500],["🌲","Значок «Пуща»",800],["🦬","Зубр-хранитель",1200],["🌼","Папараць-кветка",1500],["👑","Корона знатока",2500],["🛡","Щит памяти",3000]].map(([e,n,c])=>`<div class="card"><div style="font-size:64px;text-align:center;background:var(--soft);padding:30px">${e}</div><div><h3>${n}</h3><p class="meta">${c} баллов</p><button class="btn o" style="margin-top:12px" onclick="alert('Демо: подключите баллы пользователя')">Получить</button></div></div>`).join("");</script></body></html>

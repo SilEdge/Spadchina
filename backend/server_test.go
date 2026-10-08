@@ -186,3 +186,67 @@ func TestServerWorkflow(t *testing.T) {
 	requestJSON(t, client, http.MethodPut, fmt.Sprintf("%s/api/admin/articles/%d", server.URL, createdArticle.ID), admin.Token, article, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodDelete, fmt.Sprintf("%s/api/admin/articles/%d", server.URL, createdArticle.ID), admin.Token, nil, http.StatusOK, nil)
 }
+
+func TestAtlasPersistenceAndRewards(t *testing.T) {
+	if db != nil {
+		_ = db.Close()
+	}
+	t.Setenv("DATABASE_PATH", filepath.Join(t.TempDir(), "atlas-test.db"))
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("TELEGRAM_IDEAS_BOT_TOKEN", "")
+	initDB()
+	t.Cleanup(func() {
+		_ = db.Close()
+		_ = os.Unsetenv("DATABASE_PATH")
+	})
+	server := httptest.NewServer(newServerMux())
+	defer server.Close()
+	client := server.Client()
+
+	var atlas struct {
+		Places []struct {
+			ID    string `json:"id"`
+			Image string `json:"image"`
+		} `json:"places"`
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/atlas", "", nil, http.StatusOK, &atlas)
+	if len(atlas.Places) != 27 || atlas.Places[0].ID != "mir" || atlas.Places[0].Image != "img/hero.jpg" {
+		t.Fatalf("unexpected archive atlas payload: %d places, first=%+v", len(atlas.Places), atlas.Places[0])
+	}
+
+	user := registerTestUser(t, client, server.URL, "Atlas Tester", "atlas@example.com")
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", user.Token, map[string]interface{}{
+		"slug": "mir", "score": 3, "max_score": 5,
+	}, http.StatusOK, nil)
+	var progress []struct {
+		Slug     string `json:"slug"`
+		Category string `json:"category"`
+		Score    int    `json:"score"`
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/atlas/progress", user.Token, nil, http.StatusOK, &progress)
+	if len(progress) != 1 || progress[0].Slug != "mir" || progress[0].Category != "architecture" || progress[0].Score != 3 {
+		t.Fatalf("unexpected saved atlas progress: %+v", progress)
+	}
+
+	if _, err := db.Exec("UPDATE users SET points=1000 WHERE id=?", user.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	var rewards []struct {
+		ID   string `json:"id"`
+		Cost int    `json:"cost"`
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/rewards", "", nil, http.StatusOK, &rewards)
+	if len(rewards) != 6 || rewards[0].ID != "belt-frame" {
+		t.Fatalf("unexpected rewards: %+v", rewards)
+	}
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/rewards/redeem", user.Token, map[string]string{
+		"reward_id": rewards[0].ID,
+	}, http.StatusOK, nil)
+	var owned []struct {
+		ID string `json:"id"`
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/rewards/my", user.Token, nil, http.StatusOK, &owned)
+	if len(owned) != 1 || owned[0].ID != rewards[0].ID {
+		t.Fatalf("reward was not stored: %+v", owned)
+	}
+}

@@ -1,0 +1,7 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Рейтинг — Спадчына</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;600&family=JetBrains+Mono:wght@600&display=swap">
+<link rel="stylesheet" href="style.css"></head><body>
+<div class="wrap"><div class="ph"><h1>Рейтинг знатоков</h1><p>Лучшие исследователи атласа за этот месяц.</p></div><div class="pod" id="pod"></div><table id="tb"></table></div>
+<script src="data.js"></script><script src="app.js"></script>
+<script>const R=D.rating,o=[[R[1],2,220,120],[R[0],1,300,260],[R[2],3,160,30]];pod.innerHTML=o.map(([u,n,h,d])=>`<div><b>${u.name}</b><p class="meta">${u.pts} баллов</p><div class="b" style="height:${h}px;animation-delay:${d}ms">${n}</div></div>`).join("");
+tb.innerHTML="<tr><th>#</th><th>Имя</th><th>Город</th><th>Баллы</th></tr>"+R.map((u,i)=>`<tr><td>${i+1}</td><td>${u.name}</td><td>${u.city||""}</td><td><b>${u.pts}</b></td></tr>`).join("");</script></body></html>

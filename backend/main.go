@@ -59,6 +59,12 @@ func newServerMux() *http.ServeMux {
 	mux.HandleFunc("/api/me", authMiddleware(meHandler))
 
 	// Articles public
+	mux.HandleFunc("/api/atlas", getAtlasHandler)
+	mux.HandleFunc("/api/atlas/results", authMiddleware(saveAtlasResultHandler))
+	mux.HandleFunc("/api/atlas/progress", authMiddleware(atlasProgressHandler))
+	mux.HandleFunc("/api/rewards", rewardsHandler)
+	mux.HandleFunc("/api/rewards/my", authMiddleware(myRewardsHandler))
+	mux.HandleFunc("/api/rewards/redeem", authMiddleware(redeemRewardHandler))
 	mux.HandleFunc("/api/articles", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/articles/") {
 			getArticleHandler(w, r)

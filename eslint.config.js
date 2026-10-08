@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist/**', 'docs/assets/**', '.kilo/**'] },
+  { ignores: ['dist/**', 'docs/assets/**', '.kilo/**', 'app.js', 'data.js', 'public/app.js', 'public/data.js'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {

@@ -1,19 +1,15 @@
-<!doctype html>
-<html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/spadchina-bot-logo.svg" />
-    <link rel="apple-touch-icon" href="/spadchina-bot-logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#101f2d" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Onest:wght@400;500;600;700;800&family=Unbounded:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <meta name="description" content="Спадчына — цифровой атлас историй Беларуси. Открывайте наследие родного края через маршруты, статьи и интерактивные задания." />
-    <title>Спадчина</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Цифровой атлас Беларуси — Спадчына</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;600&family=JetBrains+Mono:wght@600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><link rel="stylesheet" href="style.css"></head><body>
+<div class="cover"><img src="img/lakes.jpg" alt=""><div class="wrap"><h1>Спадчына</h1><p class="big">Малая<br><span>родина</span></p><p class="l">Интерактивный атлас мест Беларуси: читай истории, отвечай на вопросы, собирай баллы и соревнуйся с друзьями.</p><a class="btn" href="catalog.html">Открыть атлас</a></div></div>
+<section><div class="wrap"><div class="stats"><div><b>70</b>мест</div><div><b>350</b>заданий</div><div><b>6</b>направлений</div></div></div></section>
+<section style="padding-top:0"><div class="wrap"><h2>Шесть нитей одного узора</h2><div class="cats" id="cats"></div></div></section>
+<section style="padding-top:0"><div class="wrap"><h2>Карта историй</h2><div id="map"></div><div class="grid" id="list"></div></div></section>
+<section style="padding-top:0"><div class="wrap"><h2 style="max-width:900px">«Людзі, што ў пушчах жывуць, ведаюць свае логвы…»</h2><p class="meta">— Франциск Скорина</p></div></section>
+<script src="data.js"></script><script src="app.js"></script>
+<script>let act=null,map=L.map("map",{scrollWheelZoom:false,crs:L.CRS.EPSG3395}),grp=L.layerGroup().addTo(map);map.attributionControl.setPrefix(false);
+L.tileLayer("https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&scale=1&lang=ru_RU",{attribution:"© Яндекс Карты",maxZoom:17}).addTo(map);
+fetch("belarus.json").then(r=>r.json()).then(g=>L.geoJSON(g,{style:{color:"#2b6a9c",weight:2,fillOpacity:.05}}).addTo(map)).catch(()=>{});
+map.fitBounds([[51.3,23.15],[56.2,32.75]]);
+function draw(){grp.clearLayers();const ps=D.places.filter(p=>!act||p.cat===act);ps.forEach(p=>{const c=D.coords[p.id];if(c)L.marker(c,{icon:L.divIcon({className:"mk",html:"<span></span>",iconSize:[24,24]})}).bindTooltip(p.name).on("click",()=>location="place.html?id="+p.id).addTo(grp)});
+list.innerHTML=ps.map(card).join("");cats.innerHTML=[{id:null,name:"Вся Беларусь"},...D.categories].map(c=>`<button class="${act===c.id?"on":""}" onclick="act=${c.id?`'${c.id}'`:null};draw()">${c.name}<small>${D.places.filter(p=>!c.id||p.cat===c.id).length} мест</small></button>`).join("")}draw();</script></body></html>

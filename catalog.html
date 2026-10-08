@@ -1,0 +1,7 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Каталог — Спадчына</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;600&family=JetBrains+Mono:wght@600&display=swap">
+<link rel="stylesheet" href="style.css"></head><body>
+<div class="wrap"><div class="ph"><h1>Выбери место —<br><span style="color:var(--p)">открой историю</span></h1><div style="margin-top:28px;max-width:520px"><input id="s" placeholder="Поиск по названию или региону"></div><div class="chips" id="ch"></div></div><div class="grid" id="list"></div></div>
+<script src="data.js"></script><script src="app.js"></script>
+<script>let a=null;function r(){const t=s.value.toLowerCase();list.innerHTML=D.places.filter(p=>(!a||p.cat===a)&&(p.name+p.region).toLowerCase().includes(t)).map(card).join("")||"<p>Ничего не найдено</p>";
+ch.innerHTML=[{id:null,name:"Все"},...D.categories].map(c=>`<button class="${a===c.id?"on":""}" onclick="a=${c.id?`'${c.id}'`:null};r()">${c.name}</button>`).join("")}s.oninput=r;r();</script></body></html>

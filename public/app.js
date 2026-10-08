@@ -1,0 +1,7 @@
+const D=window.DATA,cat=id=>D.categories.find(c=>c.id===id)||{name:id};
+const pages=[["index.html","Главная"],["catalog.html","Каталог"],["rating.html","Рейтинг"],["battles.html","Батлы"],["shop.html","Награды"],["profile.html","Профиль"]];
+const here=location.pathname.split("/").pop()||"index.html";
+document.body.insertAdjacentHTML("afterbegin",`<header><div class="wrap"><a class="logo" href="index.html"><img src="img/logo-woven.png" alt="">Спадчына</a><nav>${pages.map(([h,t])=>`<a href="${h}" class="${h===here?"on":""}">${t}</a>`).join("")}</nav><button class="btn" onclick="dlg.classList.add('on')">Войти</button></div></header>
+<div class="dlg" id="dlg" onclick="if(event.target===this)this.classList.remove('on')"><form onsubmit="event.preventDefault();this.querySelector('p').textContent='Демо-форма: подключите свою авторизацию.'"><h3>Вход</h3><input placeholder="Email" type="email" required><input placeholder="Пароль" type="password" required><button class="btn">Войти</button><p class="meta"></p></form></div>`);
+document.body.insertAdjacentHTML("beforeend",`<footer><div class="wrap"><div class="logo">Спадчына</div><p style="margin-top:12px;max-width:420px">Места, люди и истории, из которых складывается Беларусь. Цифровой атлас · «Судьба малой родины в объективе технологий».</p></div></footer>`);
+const card=p=>`<a class="card" href="place.html?id=${p.id}"><img src="${p.image}" alt="${p.name}" loading="lazy"><div><span class="pts">+${p.pts}</span><h3>${p.name}</h3><p class="meta">${cat(p.cat).name} · ${p.region}</p></div></a>`;

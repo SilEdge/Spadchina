@@ -57,6 +57,31 @@ func initDB() {
 			content TEXT NOT NULL,
 			questions TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS atlas_places (
+			slug TEXT PRIMARY KEY,
+			article_id INTEGER NOT NULL UNIQUE,
+			region TEXT NOT NULL,
+			era TEXT NOT NULL,
+			lead TEXT NOT NULL,
+			points INTEGER NOT NULL,
+			x INTEGER NOT NULL,
+			y INTEGER NOT NULL,
+			FOREIGN KEY (article_id) REFERENCES articles(id)
+		);`,
+		`CREATE TABLE IF NOT EXISTS reward_items (
+			id TEXT PRIMARY KEY,
+			icon TEXT NOT NULL,
+			name TEXT NOT NULL,
+			cost INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS user_rewards (
+			user_id INTEGER NOT NULL,
+			reward_id TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, reward_id),
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (reward_id) REFERENCES reward_items(id)
+		);`,
 		`CREATE TABLE IF NOT EXISTS results (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER NOT NULL,
@@ -146,6 +171,7 @@ func initDB() {
 	createAdmin()
 	seedArticles()
 	seedExpandedArticles()
+	seedAtlas()
 	normalizeArticleImages()
 	ensureTeamBattleQuestionMinimums()
 }
