@@ -1721,10 +1721,6 @@ em { font-style: normal; }
 .profile-page main { background-color: var(--background); background-image: linear-gradient(color-mix(in srgb, var(--border) 75%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--border) 75%, transparent) 1px, transparent 1px); background-size: 40px 40px; }
 .profile-page main:not([data-ready]) > div { visibility: hidden; }
 .profile-page main:not([data-ready])::before { display: block; padding: 48px max(24px, calc((100vw - 1280px) / 2)); content: "Загружаем профиль…"; font-weight: 700; }
-.profile-page main > div > section:not(:first-child) { margin-top: 40px; }
-.profile-page main .backend-game-panel { background: var(--card); }
-.profile-page main .backend-game-panel:has(.backend-battle-players) { background: var(--card); }
-.profile-page main > div > section:first-child > div:first-child { grid-column: 1 / -1; }
 .profile-page main > div > section:first-child > div[hidden] { display: none; }
 .profile-page main h1 { max-width: 100%; overflow-wrap: anywhere; }
 .atlas-place-list a { grid-template-columns: 2rem minmax(0, 1fr) auto; gap: 14px; }
