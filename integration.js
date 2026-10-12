@@ -1,8 +1,15 @@
+import './data.js';
+import './app.js';
+
 const API_ROOT = `${String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '')}/api`;
 const TOKEN_KEY = 'cultcode_token';
 const PENDING_KEY = 'spadchyna_pending_quiz_results';
 const token = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || '';
 const cache = { atlas: null, user: null };
+const FALLBACK_CATEGORIES = [
+  ['История', 'history'], ['Культура', 'culture'], ['Природа', 'nature'],
+  ['Традиции', 'traditions'], ['Архитектура', 'architecture'], ['Память', 'memory'],
+].map(([name, id]) => ({ name, id }));
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -11,7 +18,11 @@ async function api(path, options = {}) {
   if (token()) headers.set('Authorization', `Bearer ${token()}`);
   const response = await fetch(`${API_ROOT}${path}`, { ...options, headers });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `Ошибка сервера (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(payload.error || `Ошибка сервера (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   return payload;
 }
 
@@ -28,7 +39,11 @@ const status = (target, message, error = false) => {
   line.textContent = message;
   line.dataset.error = String(error);
 };
-const getAtlas = () => cache.atlas || (cache.atlas = api('/atlas'));
+const getAtlas = () => cache.atlas || (cache.atlas = api('/atlas').catch((error) => { cache.atlas = null; throw error; }));
+const safeNextPage = () => {
+  const next = new URLSearchParams(location.search).get('next');
+  return next && /^[a-z0-9-]+\.html$/i.test(next) ? next : 'profile.html';
+};
 
 function makeAuthForm(mode = 'login') {
   const registering = mode === 'register';
@@ -89,8 +104,7 @@ function bindAuthForm(form, initialMode = 'login') {
       cache.user = result.user;
       await syncPendingResults();
       if (location.pathname.endsWith('/login.html')) {
-        const next = new URLSearchParams(location.search).get('next');
-        location.href = next || 'profile.html';
+        location.href = safeNextPage();
       } else location.reload();
     } catch (error) {
       status(form, error.message, true);
@@ -104,7 +118,8 @@ async function syncPendingResults() {
   try { pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch { pending = []; }
   const failed = [];
   for (const result of pending) {
-    try { await api('/atlas/results', { method: 'POST', body: JSON.stringify(result) }); }
+    if (result.account && result.account !== cache.user?.username) { failed.push(result); continue; }
+    try { await api('/atlas/results', { method: 'POST', body: JSON.stringify({ slug: result.slug, score: result.score, max_score: result.max_score }) }); }
     catch { failed.push(result); }
   }
   if (failed.length) localStorage.setItem(PENDING_KEY, JSON.stringify(failed));
@@ -112,11 +127,14 @@ async function syncPendingResults() {
 }
 
 function queuePendingResult(result) {
+  const entry = { ...result, account: cache.user?.username || null };
   try {
     const pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
-    localStorage.setItem(PENDING_KEY, JSON.stringify([...pending.filter((item) => item.slug !== result.slug), result]));
+    const previous = pending.find((item) => item.slug === entry.slug && item.account === entry.account);
+    if (previous && previous.score > entry.score) entry.score = previous.score;
+    localStorage.setItem(PENDING_KEY, JSON.stringify([...pending.filter((item) => item.slug !== entry.slug || item.account !== entry.account), entry]));
   } catch {
-    localStorage.setItem(PENDING_KEY, JSON.stringify([result]));
+    localStorage.setItem(PENDING_KEY, JSON.stringify([entry]));
   }
 }
 
@@ -166,8 +184,9 @@ async function installAuth() {
         if (mode === 'register') body.name = pageForm.elements.name.value.trim();
         const result = await api(mode === 'register' ? '/register' : '/login', { method: 'POST', body: JSON.stringify(body) });
         localStorage.setItem(TOKEN_KEY, result.token); sessionStorage.setItem(TOKEN_KEY, result.token);
+        cache.user = result.user;
         await syncPendingResults();
-        location.href = new URLSearchParams(location.search).get('next') || 'profile.html';
+        location.href = safeNextPage();
       } catch (error) { status(pageForm, error.message, true); submit.disabled = false; }
     });
     if (token()) location.href = 'profile.html';
@@ -190,8 +209,10 @@ async function installAuth() {
           }
         }
       });
-    } catch {
-      localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY);
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) {
+        localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY);
+      }
     }
   }
 }
@@ -207,6 +228,7 @@ async function installCatalog() {
   try { atlas = await getAtlas(); }
   catch (error) { status(main, `Каталог загружен из сохранённой версии: ${error.message}`, true); }
   const placeIndex = new Map((atlas?.places || window.SP?.n || []).map((place) => [place.id, place]));
+  const categories = atlas?.categories || FALLBACK_CATEGORIES;
   const progress = new Set();
   if (token()) {
     try { (await api('/atlas/progress')).forEach((item) => progress.add(item.slug)); } catch { /* Keep browsing available during a temporary API outage. */ }
@@ -234,7 +256,7 @@ async function installCatalog() {
   input.addEventListener('input', apply);
   filters.forEach((button) => button.addEventListener('click', () => {
     const text = button.textContent.trim().split(/\s+/)[0];
-    category = text === 'Все' ? '' : (atlas?.categories || []).find((item) => item.name.toLocaleLowerCase('ru') === text.toLocaleLowerCase('ru'))?.id || '';
+    category = text === 'Все' ? '' : categories.find((item) => item.name.toLocaleLowerCase('ru') === text.toLocaleLowerCase('ru'))?.id || '';
     filters.forEach((item) => { item.classList.remove('border-primary', 'bg-primary', 'text-primary-foreground'); item.classList.add('border-border'); });
     button.classList.add('border-primary', 'bg-primary', 'text-primary-foreground');
     apply();
@@ -245,8 +267,14 @@ async function installCatalog() {
 async function installHomeAtlas() {
   const main = document.querySelector('main');
   if (!main?.querySelector('#atlas-map')) return;
+  main.querySelector('#atlas-map')?.closest('section')?.querySelector('ol')?.classList.add('atlas-place-list');
+  let atlas;
   try {
-    const atlas = await getAtlas();
+    atlas = await getAtlas();
+  } catch {
+    atlas = { categories: FALLBACK_CATEGORIES, places: window.SP?.n || [], quizzes: window.SP?.q || {} };
+  }
+  if (atlas.places.length) {
     const categoryCounts = new Map(atlas.categories.map((category) => [category.id, atlas.places.filter((place) => place.cat === category.id).length]));
     const taskCount = Object.values(atlas.quizzes || {}).reduce((sum, questions) => sum + questions.length, 0);
     const stats = [...main.querySelectorAll('dl > div')];
@@ -256,21 +284,25 @@ async function installHomeAtlas() {
     if (categorySection) {
       const categoryButtons = [...categorySection.querySelectorAll('button')];
       categoryButtons.forEach((button, index) => {
+        button.classList.add('atlas-category-filter');
         const category = atlas.categories[index]; if (!category) return;
         const countLabel = [...button.querySelectorAll('span')].find((span) => /мест/i.test(span.textContent));
         if (countLabel) countLabel.textContent = `${categoryCounts.get(category.id) || 0} мест`;
       });
       const cards = [...main.querySelectorAll('a[href^="place-"]')];
+      let active = '';
       categoryButtons.forEach((button, index) => button.addEventListener('click', () => {
         const selected = atlas.categories[index];
+        active = active === selected?.id ? '' : selected?.id;
+        categoryButtons.forEach((item) => item.setAttribute('aria-pressed', String(item === button && Boolean(active))));
         cards.forEach((card) => {
           const slug = card.getAttribute('href').replace(/^place-/, '').replace(/\.html$/, '');
           const place = atlas.places.find((item) => item.id === slug);
-          card.hidden = Boolean(place && place.cat !== selected?.id);
+          card.hidden = Boolean(active && place && place.cat !== active);
         });
       }));
     }
-  } catch (error) { status(main, `Карта использует сохранённые данные: ${error.message}`, true); }
+  }
 }
 
 async function installPlaceQuiz() {
@@ -289,18 +321,19 @@ async function installPlaceQuiz() {
   let index = 0; let score = 0;
   const draw = (feedback = '') => {
     if (index >= questions.length) {
-      card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Маршрут пройден</p><h2 class="mt-3 font-display text-2xl font-bold">Ваш результат: ${score} из ${questions.length}</h2><p class="mt-3">${token() ? 'Сохраняем результат в профиль…' : 'Войдите, чтобы сохранить результат и баллы.'}</p><button class="backend-primary-button" type="button">Пройти ещё раз</button>`;
+      card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Маршрут пройден</p><h2 class="mt-3 font-display text-2xl font-bold">Ваш результат: ${score} из ${questions.length}</h2><p class="mt-3" data-save-message>${token() ? 'Сохраняем результат в профиль…' : 'Войдите, чтобы сохранить результат и баллы.'}</p><button class="backend-primary-button" type="button">Пройти ещё раз</button>`;
       card.querySelector('button').onclick = () => { index = 0; score = 0; draw(); };
       const result = { slug, score, max_score: questions.length };
       if (!token()) {
         queuePendingResult(result);
         return;
       }
+      const message = card.querySelector('[data-save-message]');
       api('/atlas/results', { method: 'POST', body: JSON.stringify(result) })
-        .then(() => { card.querySelector('p:nth-of-type(2)').textContent = 'Результат сохранён в базе данных. Баллы добавлены в профиль.'; })
+        .then(() => { if (message.isConnected) message.textContent = 'Результат сохранён в базе данных. Баллы добавлены в профиль.'; })
         .catch(() => {
           queuePendingResult(result);
-          card.querySelector('p:nth-of-type(2)').textContent = 'Сервер временно недоступен. Результат сохранён на устройстве и будет отправлен при следующем входе.';
+          if (message.isConnected) message.textContent = 'Сервер временно недоступен. Результат сохранён на устройстве и будет отправлен при следующем входе.';
         });
       return;
     }
@@ -347,15 +380,18 @@ async function installLeaderboard() {
     podium.innerHTML = ranking.slice(0, 3).map((person, index) => `<article class="backend-podium-card${demo ? ' is-demo' : ''}"><span>${['🥇', '🥈', '🥉'][index]}</span><b>${esc(person.name || person.username)}</b><strong>${person.points} баллов</strong></article>`).join('');
     oldList.innerHTML = ranking.slice(3).map((person, index) => `<li class="backend-rank-row${demo ? ' is-demo' : ''}"><span>${index + 4}</span><b>${esc(person.name || person.username)}</b><span>${person.completed_count} мест</span><strong>${person.points}</strong></li>`).join('');
     oldList.setAttribute('aria-label', demo ? 'Демонстрационный рейтинг, имена вымышлены' : 'Рейтинг пользователей из базы данных');
-    if (demo) status(content, 'Демонстрационный рейтинг · имена и результаты вымышлены. Реальные участники появятся после сохранения результатов.');
+    status(content, demo ? 'Демонстрационный рейтинг · имена и результаты вымышлены. Реальные участники появятся после сохранения результатов.' : '');
   };
+  let requestId = 0;
   const render = async (period = 'week') => {
+    const current = ++requestId;
     try {
       const ranking = await api(`/leaderboard?period=${period}`);
+      if (current !== requestId) return;
       if (ranking.length) paintRanking(ranking);
       else paintRanking(demoRanking(period), true);
     } catch {
-      paintRanking(demoRanking(period), true);
+      if (current === requestId) paintRanking(demoRanking(period), true);
     }
   };
   filterRow.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => {
@@ -374,6 +410,7 @@ async function installProfile() {
     hero.innerHTML = '<div class="backend-game-panel"><h1 class="font-display text-4xl font-bold">Ваш профиль</h1><p>Войдите или зарегистрируйтесь, чтобы видеть личный прогресс и награды.</p><button class="backend-primary-button">Войти или зарегистрироваться</button></div>';
     hero.querySelector('button').onclick = () => openAuthModal();
     [...main.querySelectorAll('section')].filter((section) => section !== hero).forEach((section) => { section.hidden = true; });
+    main.dataset.ready = 'true';
     return;
   }
   try {
@@ -388,7 +425,12 @@ async function installProfile() {
     const editForm = document.createElement('form');
     editForm.className = 'backend-profile-form'; editForm.hidden = true;
     editForm.innerHTML = `<label>Имя в профиле<input name="name" autocomplete="name" minlength="2" maxlength="80" required value="${esc(user.name || user.username)}"></label><p class="backend-profile-email">Email аккаунта: ${esc(user.email)}</p><div class="backend-profile-actions"><button class="backend-primary-button" type="submit">Сохранить</button><button class="backend-outline-button" type="button" data-cancel-edit>Отмена</button></div><p class="backend-status" role="status" aria-live="polite"></p>`;
-    description?.after(editButton, editForm);
+    const ideaLink = document.createElement('a');
+    ideaLink.href = 'ideas.html'; ideaLink.className = 'backend-outline-button';
+    ideaLink.textContent = 'Предложить идею';
+    const profileActions = document.createElement('div'); profileActions.className = 'backend-profile-actions';
+    profileActions.append(editButton, ideaLink);
+    description?.after(profileActions, editForm);
     editButton.onclick = () => { editForm.hidden = !editForm.hidden; if (!editForm.hidden) editForm.elements.name.focus(); };
     editForm.querySelector('[data-cancel-edit]').onclick = () => { editForm.hidden = true; editForm.elements.name.value = user.name || user.username; };
     editForm.addEventListener('submit', async (event) => {
@@ -414,7 +456,8 @@ async function installProfile() {
       const place = ranking.findIndex((item) => item.username === user.username);
       metrics[2].querySelector('p.font-display').textContent = place >= 0 ? `#${place + 1}` : '—';
     }
-    const levelPanel = [...hero.querySelectorAll('div')].find((div) => div.classList.contains('relative') && div.textContent.includes('До уровня'));
+    const levelLabel = [...hero.querySelectorAll('span')].find((item) => item.textContent.trim().startsWith('До уровня'));
+    const levelPanel = levelLabel?.closest('.relative.mt-8');
     if (levelPanel) levelPanel.hidden = true;
     const streakTitle = [...hero.querySelectorAll('p')].find((item) => item.textContent.trim() === 'Серия');
     if (streakTitle?.parentElement) streakTitle.parentElement.hidden = true;
@@ -448,7 +491,7 @@ async function installProfile() {
       const completed = new Set(atlasProgress.map((item) => item.slug));
       const perfect = new Set(atlasProgress.filter((item) => Number(item.score) === Number(item.max_score)).map((item) => item.slug));
       const done = [
-        ['Летописец', 'Пройти 10 заданий', atlasProgress.length >= 10],
+        ['Летописец', 'Пройти 10 маршрутов', atlasProgress.length >= 10],
         ['Следопыт', 'Изучить все направления', new Set(atlasProgress.map((item) => item.category)).size >= atlas.categories.length],
         ['Знаток замков', 'Пройти пять замков без ошибок', ['mir', 'nesvizh', 'lida', 'novogrudok', 'kossovo', 'grodno'].filter((slug) => perfect.has(slug)).length >= 5],
         ['Хранитель', 'Изучить все места памяти', ['brest', 'khatyn', 'kurgan', 'trostenets'].every((slug) => completed.has(slug))],
@@ -456,8 +499,40 @@ async function installProfile() {
       const grid = [...achievements.querySelectorAll('div')].find((div) => div.className.includes('grid'));
       if (grid) grid.innerHTML = done.map(([name, description, unlocked]) => `<article class="backend-game-panel"><b>${unlocked ? '✓' : '◇'} ${name}</b><span>${description}</span><small>${unlocked ? 'Получено' : 'В процессе'}</small></article>`).join('');
     }
-    const logout = document.createElement('button'); logout.className = 'backend-outline-button'; logout.textContent = 'Выйти'; logout.onclick = () => { localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); location.href = 'index.html'; }; h1?.after(logout);
-  } catch (error) { status(hero, `Не удалось загрузить профиль: ${error.message}`, true); }
+    main.dataset.ready = 'true';
+  } catch (error) {
+    hero.innerHTML = `<div class="backend-game-panel"><h1 class="font-display text-2xl font-bold">Не удалось загрузить профиль</h1><p>${esc(error.message)}</p><button class="backend-primary-button" type="button">Повторить</button></div>`;
+    hero.querySelector('button').onclick = () => location.reload();
+    [...main.querySelectorAll('section')].filter((section) => section !== hero).forEach((section) => { section.hidden = true; });
+    main.dataset.ready = 'true';
+  }
+}
+
+async function installIdeas() {
+  const form = document.querySelector('#idea-form');
+  if (!form) return;
+  if (token()) {
+    try {
+      const user = cache.user || await api('/me');
+      form.elements.name.value = user.name || user.username || '';
+      form.elements.email.value = user.email?.endsWith('@local.test') ? '' : user.email || '';
+    } catch { /* Guests may also submit ideas. */ }
+  }
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('[type="submit"]'); button.disabled = true;
+    const body = {
+      name: form.elements.name.value.trim(),
+      email: form.elements.email.value.trim(),
+      message: form.elements.message.value.trim(),
+    };
+    try {
+      const result = await api('/suggestions', { method: 'POST', body: JSON.stringify(body) });
+      form.elements.message.value = '';
+      status(form, result.delivery === 'telegram' ? 'Идея отправлена через Telegram и сохранена. Спасибо!' : 'Идея сохранена. Спасибо! Мы прочитаем её после подключения Telegram-бота.');
+    } catch (error) { status(form, `Не удалось отправить идею: ${error.message}`, true); }
+    finally { button.disabled = false; }
+  });
 }
 
 async function installShop() {
@@ -466,6 +541,9 @@ async function installShop() {
     const [items, owned] = await Promise.all([api('/rewards'), token() ? api('/rewards/my') : Promise.resolve([])]);
     const buttons = [...main.querySelectorAll('button')].filter((button) => button.textContent.trim() === 'Получить');
     const ownedIDs = new Set(owned.map((item) => item.id));
+    const points = [...main.querySelectorAll('span,p')].find((item) => /У вас .*баллов/.test(item.textContent));
+    const user = token() ? await api('/me') : null;
+    if (points) points.textContent = user ? `У вас ${user.points} баллов` : 'Войдите, чтобы увидеть баланс баллов';
     items.forEach((item, index) => {
       const button = buttons[index]; if (!button) return;
       button.dataset.rewardId = item.id;
@@ -480,15 +558,16 @@ async function installShop() {
       button.onclick = async () => {
         if (!token()) { openAuthModal(); return; }
         button.disabled = true;
-        try { await api('/rewards/redeem', { method: 'POST', body: JSON.stringify({ reward_id: item.id }) }); button.textContent = 'Получено'; const me = await api('/me'); cache.user = me; status(card, `Награда добавлена в профиль. Осталось ${me.points} баллов.`); }
+        try {
+          const result = await api('/rewards/redeem', { method: 'POST', body: JSON.stringify({ reward_id: item.id }) });
+          button.textContent = 'Получено'; ownedIDs.add(item.id);
+          if (points) points.textContent = `У вас ${result.points} баллов`;
+          if (cache.user) cache.user.points = result.points;
+          status(card, `Награда добавлена в профиль. Осталось ${result.points} баллов.`);
+        }
         catch (error) { status(card, error.message, true); button.disabled = false; }
       };
     });
-    const points = [...main.querySelectorAll('span,p')].find((item) => /У вас .*баллов/.test(item.textContent));
-    if (points) {
-      if (token()) { const me = await api('/me'); points.textContent = `У вас ${me.points} баллов`; }
-      else points.innerHTML = 'Войдите, чтобы увидеть баланс баллов';
-    }
   } catch (error) { status(main, `Не удалось загрузить награды: ${error.message}`, true); }
 }
 
@@ -508,11 +587,14 @@ async function installChat() {
   const list = aside.querySelector('.backend-chat-people'); const messages = view.querySelector('.backend-chat-messages');
   const loadMessages = async () => {
     if (!peer) return;
+    const requestedPeer = peer;
     try {
-      const items = await api(`/chat/messages?peer=${encodeURIComponent(peer)}`);
+      const items = await api(`/chat/messages?peer=${encodeURIComponent(requestedPeer)}`);
+      if (requestedPeer !== peer) return;
+      const nearBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
       messages.innerHTML = items.map((item) => `<p class="backend-chat-message ${item.sender === cache.user?.username ? 'backend-chat-mine' : ''}"><b>${esc(item.sender_name || item.sender)}</b><span>${esc(item.text)}</span><time>${esc(item.created_at)}</time></p>`).join('') || '<p>Начните беседу первым сообщением.</p>';
-      messages.scrollTop = messages.scrollHeight;
-    } catch (error) { status(messages, error.message, true); }
+      if (nearBottom) messages.scrollTop = messages.scrollHeight;
+    } catch (error) { if (requestedPeer === peer) status(messages, error.message, true); }
   };
   const selectPeer = async (username) => {
     peer = username;
@@ -529,8 +611,10 @@ async function installChat() {
     view.querySelector('form').addEventListener('submit', async (event) => {
       event.preventDefault(); if (!peer) return;
       const input = event.currentTarget.querySelector('input'); const send = event.currentTarget.querySelector('button');
+      const message = input.value.trim();
+      if (!message) return;
       send.disabled = true;
-      try { await api('/chat/messages', { method: 'POST', body: JSON.stringify({ to: peer, text: input.value.trim() }) }); input.value = ''; await loadMessages(); }
+      try { await api('/chat/messages', { method: 'POST', body: JSON.stringify({ to: peer, text: message }) }); input.value = ''; await loadMessages(); }
       catch (error) { status(view, error.message, true); }
       finally { send.disabled = false; }
     });
@@ -548,7 +632,16 @@ async function installDuelPage() {
   if (!token()) { create.innerHTML = '<button class="backend-primary-button">Войти, чтобы начать дуэль</button>'; create.querySelector('button').onclick = () => openAuthModal(); return; }
   const refresh = async () => {
     const [people, duels] = await Promise.all([api('/people'), api('/duels')]);
-    create.innerHTML = `<label>Соперник<select class="backend-select" id="duel-opponent"><option value="">Выберите участника</option>${people.map((person) => `<option value="${esc(person.username)}">${esc(person.name)} · ${person.points} баллов</option>`).join('')}</select></label><button class="backend-primary-button" data-create-duel ${people.length ? '' : 'disabled'}>Бросить вызов</button>`;
+    create.innerHTML = `<label>Найти соперника<input class="backend-select" id="duel-search" type="search" placeholder="Имя участника"></label><label>Соперник<select class="backend-select" id="duel-opponent"><option value="">Выберите участника</option>${people.map((person) => `<option value="${esc(person.username)}">${esc(person.name)} · ${person.points} баллов</option>`).join('')}</select></label><button class="backend-primary-button" data-create-duel ${people.length ? '' : 'disabled'}>Бросить вызов</button><button class="backend-outline-button" type="button" data-refresh-duels>Обновить</button>`;
+    create.querySelector('#duel-search').addEventListener('input', (event) => {
+      const query = event.target.value.trim().toLocaleLowerCase('ru');
+      create.querySelectorAll('#duel-opponent option').forEach((option) => {
+        if (option.value) option.hidden = !option.textContent.toLocaleLowerCase('ru').includes(query);
+      });
+      const selected = create.querySelector('#duel-opponent').selectedOptions[0];
+      if (selected?.hidden) create.querySelector('#duel-opponent').value = '';
+    });
+    create.querySelector('[data-refresh-duels]').onclick = refresh;
     create.querySelector('[data-create-duel]').onclick = async () => {
       const opponent = create.querySelector('select').value; if (!opponent) return status(create, 'Выберите соперника.');
       try { await api('/duels', { method: 'POST', body: JSON.stringify({ opponent }) }); await refresh(); }
@@ -557,7 +650,8 @@ async function installDuelPage() {
     duelList.innerHTML = duels.length ? duels.map((duel) => {
       const incoming = duel.opponent === cache.user?.username;
       const other = incoming ? (duel.challenger_name || duel.challenger) : (duel.opponent_name || duel.opponent);
-      const action = duel.status === 'pending' && incoming ? `<button data-accept="${duel.id}">Принять</button><button data-decline="${duel.id}">Отклонить</button>` : duel.status === 'active' ? `<button data-play-duel="${duel.id}">Играть</button>` : '';
+      const played = incoming ? duel.opponent_score >= 0 : duel.challenger_score >= 0;
+      const action = duel.status === 'pending' && incoming ? `<button data-accept="${duel.id}">Принять</button><button data-decline="${duel.id}">Отклонить</button>` : duel.status === 'active' && !played ? `<button data-play-duel="${duel.id}">Играть</button>` : duel.status === 'active' ? '<span>Ожидаем соперника</span>' : '';
       return `<article class="backend-duel-item"><b>Дуэль с ${esc(other)}</b><span>Статус: ${esc(duel.status)}</span><span>Счёт ${duel.challenger_score < 0 ? '—' : duel.challenger_score} : ${duel.opponent_score < 0 ? '—' : duel.opponent_score}</span>${action}</article>`;
     }).join('') : '<p>Пока дуэлей нет. Выберите соперника выше.</p>';
     duelList.querySelectorAll('[data-accept]').forEach((button) => button.onclick = async () => { try { await api(`/duels/${button.dataset.accept}/accept`, { method: 'POST' }); await refresh(); } catch (error) { status(duelList, error.message, true); } });
@@ -571,14 +665,69 @@ async function installDuelPage() {
 }
 
 async function renderDuel(id, target) {
-  const duel = await api(`/duels/${id}`); const questions = duel.questions || []; const answers = []; let index = 0;
+  const duel = await api(`/duels/${id}`);
+  runQuestionGame(duel.questions || [], target, 15, async (answers) => {
+    const result = await api(`/duels/${id}/finish`, { method: 'POST', body: JSON.stringify({ answers }) });
+    target.innerHTML = `<div class="backend-game-panel"><h3>Ответы отправлены</h3><p>${result.status === 'completed' ? 'Дуэль завершена.' : 'Ожидаем ответ соперника.'}</p><button class="backend-outline-button" type="button">К списку дуэлей</button></div>`;
+    target.querySelector('button').onclick = () => location.reload();
+  });
+}
+
+function runQuestionGame(questions, target, seconds, finish) {
+  if (!questions.length) { status(target, 'Вопросы не найдены.', true); return; }
+  const answers = [];
+  let index = 0; let interval;
   const draw = () => {
+    clearInterval(interval);
     if (index >= questions.length) {
-      target.innerHTML = '<h3>Сохраняем результат дуэли…</h3>';
-      api(`/duels/${id}/finish`, { method: 'POST', body: JSON.stringify({ answers }) }).then((result) => { target.innerHTML = `<h3>Ответы отправлены</h3><p>Текущий статус: ${esc(result.status || 'ожидаем соперника')}</p><button class="backend-outline-button" onclick="location.reload()">Обновить дуэли</button>`; }).catch((error) => status(target, error.message, true)); return;
+      target.innerHTML = '<div class="backend-game-panel"><h3>Сохраняем результат…</h3></div>';
+      finish(answers).catch((error) => {
+        target.innerHTML = '<div class="backend-game-panel"><h3>Не удалось сохранить результат</h3><button class="backend-primary-button" type="button">Повторить отправку</button></div>';
+        status(target.firstElementChild, error.message, true);
+        target.querySelector('button').onclick = () => { target.innerHTML = '<div class="backend-game-panel"><h3>Сохраняем результат…</h3></div>'; finish(answers).catch((retryError) => status(target.firstElementChild, retryError.message, true)); };
+      });
+      return;
     }
-    const q = questions[index]; target.innerHTML = `<div class="backend-game-panel"><p>Вопрос ${index + 1} из ${questions.length}</p><h3>${esc(q.question)}</h3><div class="backend-answer-list">${q.options.map((option, i) => `<button data-duel-answer="${i}">${esc(option)}</button>`).join('')}</div></div>`;
-    target.querySelectorAll('[data-duel-answer]').forEach((button) => button.onclick = () => { const selected = Number(button.dataset.duelAnswer); answers.push({ question_id: q.id, selected: [selected], time_left: 15 }); index += 1; draw(); });
+    const q = questions[index];
+    const multiple = Array.isArray(q.correct);
+    const selected = new Set();
+    let remaining = seconds; let answered = false;
+    target.innerHTML = `<div class="backend-game-panel"><div class="flex justify-between gap-3"><p>Вопрос ${index + 1} из ${questions.length}${multiple ? ' · выберите все правильные ответы' : ''}</p><p class="backend-timer" aria-live="off">${remaining} с</p></div><h3>${esc(q.question)}</h3><div class="backend-answer-list">${q.options.map((option, i) => `<button type="button" data-game-answer="${i}" aria-pressed="false">${esc(option)}</button>`).join('')}</div><div class="backend-game-controls"></div><p class="backend-quiz-feedback" role="status"></p></div>`;
+    const panel = target.firstElementChild;
+    const controls = panel.querySelector('.backend-game-controls');
+    const submit = (choices) => {
+      if (answered) return;
+      answered = true; clearInterval(interval);
+      answers.push({ question_id: q.id, selected: choices, time_left: remaining });
+      const correct = Array.isArray(q.correct) ? q.correct.map(Number) : [Number(q.correct)];
+      const right = choices.length === correct.length && choices.every((choice) => correct.includes(choice));
+      panel.querySelectorAll('[data-game-answer]').forEach((button) => {
+        button.disabled = true;
+        const value = Number(button.dataset.gameAnswer);
+        if (correct.includes(value)) button.classList.add('backend-answer-correct');
+        else if (choices.includes(value)) button.classList.add('backend-answer-wrong');
+      });
+      panel.querySelector('.backend-quiz-feedback').textContent = `${choices.length ? right ? 'Верно. ' : 'Неверно. ' : 'Время вышло. '}${q.explanation || ''}`;
+      controls.innerHTML = `<button class="backend-primary-button" type="button">${index + 1 === questions.length ? 'Завершить' : 'Следующий вопрос'}</button>`;
+      controls.querySelector('button').onclick = () => { index += 1; draw(); };
+    };
+    panel.querySelectorAll('[data-game-answer]').forEach((button) => button.onclick = () => {
+      const choice = Number(button.dataset.gameAnswer);
+      if (!multiple) { submit([choice]); return; }
+      if (selected.has(choice)) selected.delete(choice); else selected.add(choice);
+      button.setAttribute('aria-pressed', String(selected.has(choice)));
+      button.classList.toggle('backend-answer-selected', selected.has(choice));
+      controls.querySelector('button').disabled = selected.size === 0;
+    });
+    if (multiple) {
+      controls.innerHTML = '<button class="backend-primary-button" type="button" disabled>Подтвердить ответы</button>';
+      controls.querySelector('button').onclick = () => submit([...selected]);
+    }
+    interval = window.setInterval(() => {
+      remaining -= 1;
+      panel.querySelector('.backend-timer').textContent = `${remaining} с`;
+      if (remaining <= 0) submit([...selected]);
+    }, 1000);
   };
   draw();
 }
@@ -593,52 +742,72 @@ async function installTeamBattles() {
   if (joinTab) joinTab.addEventListener('click', () => { form.hidden = true; joinForm.hidden = false; });
   buttons.find((button) => button.textContent.trim() === 'Создать код')?.addEventListener('click', () => { form.hidden = false; joinForm.hidden = true; });
   const game = document.createElement('section'); game.className = 'backend-game-area'; joinForm.after(game);
+  const battleStorageKey = cache.user?.username ? `spadchyna_battle_${cache.user.username}` : '';
+  const partyName = form.querySelector('#party-name');
+  if (partyName && cache.user) {
+    partyName.value = cache.user.name || cache.user.username;
+    partyName.readOnly = true;
+  }
   form.addEventListener('submit', async (event) => {
     event.preventDefault(); if (!token()) { openAuthModal(); return; }
-    const submit = form.querySelector('[type=submit]'); submit.disabled = true;
+    const submit = form.querySelector('button'); submit.disabled = true;
     try {
       const category = form.querySelector('#party-category').value;
-      const count = Math.min(30, Math.max(5, Number(form.querySelector('#party-count').value) || 5));
+      const count = Math.min(20, Math.max(5, Number(form.querySelector('#party-count').value) || 5));
       form.querySelector('#party-count').value = String(count);
       let battle;
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const code = String(100000 + Math.floor(Math.random() * 900000));
-        try { battle = await api('/team-battles', { method: 'POST', body: JSON.stringify({ code, category, question_count: count }) }); break; }
+        try { battle = await api('/team-battles', { method: 'POST', body: JSON.stringify({ code, category, question_count: count, time_seconds: Number(form.querySelector('#party-time').value) }) }); break; }
         catch (error) { if (!error.message.includes('already exists')) throw error; }
       }
       if (!battle) throw new Error('Не удалось создать комнату');
-      if (!battle.started) battle = await api(`/team-battles/${battle.code}/start`, { method: 'POST' });
-      playTeamBattle(battle, game);
+      if (battleStorageKey) localStorage.setItem(battleStorageKey, battle.code);
+      showBattleRoom(battle, game);
     } catch (error) { status(form, error.message, true); }
     finally { submit.disabled = false; }
   });
   joinForm.addEventListener('submit', async (event) => {
     event.preventDefault(); if (!token()) { openAuthModal(); return; }
     const code = joinForm.querySelector('input').value.trim();
-    try { const battle = await api(`/team-battles/${encodeURIComponent(code)}/join`, { method: 'POST' }); playTeamBattle(battle, game); }
+    try {
+      const battle = await api(`/team-battles/${encodeURIComponent(code)}/join`, { method: 'POST' });
+      if (battleStorageKey) localStorage.setItem(battleStorageKey, battle.code);
+      showBattleRoom(battle, game);
+    }
     catch (error) { status(joinForm, error.message, true); }
+  });
+  if (battleStorageKey && localStorage.getItem(battleStorageKey)) {
+    try { showBattleRoom(await api(`/team-battles/${encodeURIComponent(localStorage.getItem(battleStorageKey))}`), game); }
+    catch { localStorage.removeItem(battleStorageKey); }
+  }
+}
+
+function showBattleRoom(battle, target) {
+  const myResult = battle.participants?.find((person) => person.username === cache.user?.username);
+  if (battle.started && myResult?.completed) {
+    target.innerHTML = `<div class="backend-game-panel"><h2>Результат сохранён: ${myResult.score} очков</h2><p>Комната ${esc(battle.code)}</p><button class="backend-outline-button" type="button">Обновить участников</button><div class="backend-battle-players"></div></div>`;
+    showBattlePlayers(battle, target);
+    target.querySelector('button').onclick = async () => { try { showBattleRoom(await api(`/team-battles/${battle.code}`), target); } catch (error) { status(target, error.message, true); } };
+    return;
+  }
+  if (battle.started) { playTeamBattle(battle, target); return; }
+  const creator = battle.creator === cache.user?.username;
+  target.innerHTML = `<div class="backend-game-panel"><h2>Комната ${esc(battle.code)}</h2><p>Пригласите друзей по коду. ${creator ? 'Начните, когда все подключатся.' : 'Ждём начала от создателя.'}</p><p>${esc(battle.category_label)} · ${battle.questions.length} вопросов · ${battle.time_seconds || 20} с на ответ</p><div class="backend-battle-players"></div>${creator ? '<button class="backend-primary-button" type="button" data-start-battle>Начать батл</button>' : ''}<button class="backend-outline-button" type="button" data-refresh-battle>Обновить комнату</button></div>`;
+  showBattlePlayers(battle, target);
+  target.querySelector('[data-refresh-battle]').onclick = async () => { try { showBattleRoom(await api(`/team-battles/${battle.code}`), target); } catch (error) { status(target, error.message, true); } };
+  target.querySelector('[data-start-battle]')?.addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try { showBattleRoom(await api(`/team-battles/${battle.code}/start`, { method: 'POST' }), target); }
+    catch (error) { status(target.firstElementChild, error.message, true); event.currentTarget.disabled = false; }
   });
 }
 
 function playTeamBattle(battle, target) {
-  const questions = battle.questions || []; const answers = []; let index = 0; let score = 0;
-  const draw = () => {
-    if (index >= questions.length) {
-      target.innerHTML = `<div class="backend-game-panel"><h2>Готово! ${score} баллов</h2><p>Код комнаты <b>${esc(battle.code)}</b>. Результат сохраняется в базе.</p><button class="backend-outline-button" data-refresh-battle>Обновить участников</button><div class="backend-battle-players"></div></div>`;
-      api(`/team-battles/${battle.code}/finish`, { method: 'POST', body: JSON.stringify({ answers }) }).then((updated) => showBattlePlayers(updated, target)).catch((error) => status(target, error.message, true));
-      target.querySelector('[data-refresh-battle]').onclick = async () => { try { showBattlePlayers(await api(`/team-battles/${battle.code}`), target); } catch (error) { status(target, error.message, true); } };
-      return;
-    }
-    const q = questions[index]; target.innerHTML = `<div class="backend-game-panel"><p>Комната ${esc(battle.code)} · вопрос ${index + 1}/${questions.length}</p><h2>${esc(q.question)}</h2><div class="backend-answer-list">${q.options.map((answer, choice) => `<button data-battle-answer="${choice}">${esc(answer)}</button>`).join('')}</div><p class="backend-quiz-feedback" role="status"></p></div>`;
-    target.querySelectorAll('[data-battle-answer]').forEach((button) => button.onclick = () => {
-      const selected = Number(button.dataset.battleAnswer); const correct = Number(q.correct); if (selected === correct) score += 500;
-      target.querySelectorAll('[data-battle-answer]').forEach((item, choice) => { item.disabled = true; if (choice === correct) item.classList.add('backend-answer-correct'); else if (choice === selected) item.classList.add('backend-answer-wrong'); });
-      answers.push({ question_id: q.id, selected: [selected], time_left: 15 });
-      const feedback = target.querySelector('.backend-quiz-feedback'); feedback.textContent = q.explanation || (selected === correct ? 'Верно!' : 'Попробуйте следующий вопрос.');
-      const next = document.createElement('button'); next.className = 'backend-primary-button'; next.textContent = index + 1 === questions.length ? 'Завершить' : 'Далее'; next.onclick = () => { index += 1; draw(); }; feedback.after(next);
-    });
-  };
-  draw();
+  runQuestionGame(battle.questions || [], target, battle.time_seconds || 20, async (answers) => {
+    const updated = await api(`/team-battles/${battle.code}/finish`, { method: 'POST', body: JSON.stringify({ answers }) });
+    showBattleRoom(updated, target);
+  });
 }
 
 function showBattlePlayers(battle, target) {
@@ -649,7 +818,7 @@ function showBattlePlayers(battle, target) {
 
 async function initialize() {
   await installAuth();
-  await Promise.allSettled([installHomeAtlas(), installCatalog(), installPlaceQuiz(), installLeaderboard(), installProfile(), installShop(), installChat(), installDuelPage(), installTeamBattles()]);
+  await Promise.allSettled([installHomeAtlas(), installCatalog(), installPlaceQuiz(), installLeaderboard(), installProfile(), installIdeas(), installShop(), installChat(), installDuelPage(), installTeamBattles()]);
 }
 
 initialize();

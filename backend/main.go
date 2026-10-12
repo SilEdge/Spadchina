@@ -32,7 +32,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-func newServerMux() *http.ServeMux {
+func newServerMux() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -124,5 +124,12 @@ func newServerMux() *http.ServeMux {
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w, r)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }

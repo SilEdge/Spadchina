@@ -104,6 +104,21 @@ func TestServerWorkflow(t *testing.T) {
 	server := httptest.NewServer(newServerMux())
 	defer server.Close()
 	client := server.Client()
+	preflight, err := http.NewRequest(http.MethodOptions, server.URL+"/api/atlas", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflight.Header.Set("Origin", "http://localhost:5173")
+	preflight.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	preflight.Header.Set("Access-Control-Request-Headers", "authorization")
+	preflightResponse, err := client.Do(preflight)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflightResponse.Body.Close()
+	if preflightResponse.StatusCode != http.StatusNoContent || preflightResponse.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("CORS preflight failed: %s", preflightResponse.Status)
+	}
 
 	var health map[string]string
 	requestJSON(t, client, http.MethodGet, server.URL+"/api/health", "", nil, http.StatusOK, &health)
@@ -169,7 +184,7 @@ func TestServerWorkflow(t *testing.T) {
 	}
 	finish := DuelFinishRequest{Answers: correctAnswers(duel.Questions)}
 	requestJSON(t, client, http.MethodPost, fmt.Sprintf("%s/api/duels/%d/finish", server.URL, duel.ID), first.Token, finish, http.StatusOK, nil)
-	requestJSON(t, client, http.MethodPost, fmt.Sprintf("%s/api/duels/%d/finish", server.URL, duel.ID), second.Token, finish, http.StatusOK, &duel)
+	requestJSON(t, client, http.MethodPost, fmt.Sprintf("%s/api/duels/%d/finish", server.URL, duel.ID), second.Token, DuelFinishRequest{}, http.StatusOK, &duel)
 	if duel.Status != "completed" {
 		t.Fatalf("duel was not completed: %s", duel.Status)
 	}
@@ -179,10 +194,14 @@ func TestServerWorkflow(t *testing.T) {
 	if len(categories) == 0 || categories[0].QuestionCount < 10 {
 		t.Fatalf("team battle categories are not ready: %+v", categories)
 	}
-	createBattle := TeamBattleCreateRequest{Code: "123456", Category: categories[0].Category, QuestionCount: 10}
+	createBattle := TeamBattleCreateRequest{Code: "123456", Category: "all", QuestionCount: 10, TimeSeconds: 30}
 	var battle TeamBattle
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles", first.Token, createBattle, http.StatusOK, &battle)
+	if battle.Started || battle.TimeSeconds != 30 || battle.CategoryLabel != "Все темы" {
+		t.Fatalf("battle lobby settings were not saved: %+v", battle)
+	}
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/join", second.Token, nil, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", first.Token, DuelFinishRequest{}, http.StatusConflict, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/start", first.Token, nil, http.StatusOK, &battle)
 	if len(battle.Questions) != 10 {
 		t.Fatalf("team battle has %d questions", len(battle.Questions))
@@ -190,6 +209,7 @@ func TestServerWorkflow(t *testing.T) {
 	battleFinish := DuelFinishRequest{Answers: correctAnswers(battle.Questions)}
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", first.Token, battleFinish, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", second.Token, battleFinish, http.StatusOK, &battle)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", second.Token, battleFinish, http.StatusConflict, nil)
 	if len(battle.Participants) != 2 {
 		t.Fatalf("team battle has %d participants", len(battle.Participants))
 	}
@@ -199,6 +219,19 @@ func TestServerWorkflow(t *testing.T) {
 	}
 	if !participantNames["Alpha Updated"] || !participantNames[second.User.Name] {
 		t.Fatalf("team battle should use saved profile names: %+v", battle.Participants)
+	}
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", first.Token, map[string]interface{}{
+		"slug": "mir", "score": 5, "max_score": 5,
+	}, http.StatusOK, nil)
+	var earned User
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/me", first.Token, nil, http.StatusOK, &earned)
+	if earned.Points < 200 {
+		t.Fatalf("duel and battle rewards disappeared after a quiz: %+v", earned)
+	}
+	var gameRanking []LeaderboardEntry
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/leaderboard?period=all", "", nil, http.StatusOK, &gameRanking)
+	if len(gameRanking) < 2 || gameRanking[0].Username != first.User.Username || gameRanking[0].Points < 200 {
+		t.Fatalf("game rewards should count in the ranking: %+v", gameRanking)
 	}
 
 	var savedSuggestion map[string]interface{}
@@ -260,6 +293,12 @@ func TestAtlasPersistenceAndRewards(t *testing.T) {
 	user := registerTestUser(t, client, server.URL, "Atlas Tester", "atlas@example.com")
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", user.Token, map[string]interface{}{
 		"slug": "mir", "score": 3, "max_score": 5,
+	}, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", user.Token, map[string]interface{}{
+		"slug": "mir", "score": 1, "max_score": 1,
+	}, http.StatusBadRequest, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", user.Token, map[string]interface{}{
+		"slug": "mir", "score": 2, "max_score": 5,
 	}, http.StatusOK, nil)
 	var progress []struct {
 		Slug     string `json:"slug"`

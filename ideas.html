@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Предложить идею — Спадчына</title>
+  <meta name="description" content="Расскажите, как улучшить Спадчыну: сообщение сохранится и будет передано команде проекта.">
+  <link rel="icon" href="assets/ca74fd6227.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;700;800&family=Onest:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="idea-page">
+  <div class="ornament-band"></div>
+  <header class="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4">
+      <a class="flex items-center gap-2" href="index.html"><img src="assets/b29a1d34f6.png" alt="" width="40" height="40" class="h-10 w-10 object-contain"><span class="font-display text-xl font-bold tracking-tight">Спадчына</span></a>
+      <nav class="hidden gap-6 text-sm font-medium lg:flex"><a class="hover:text-primary" href="index.html">Главная</a><a class="hover:text-primary" href="catalog.html">Каталог</a><a class="hover:text-primary" href="rating.html">Рейтинг</a><a class="hover:text-primary" href="duels.html">Дуэли</a><a class="hover:text-primary" href="battles.html">Батлы</a><a class="hover:text-primary" href="chat.html">Чат</a><a class="hover:text-primary" href="shop.html">Магазин</a><a class="text-primary" href="ideas.html" aria-current="page">Идея</a></nav>
+      <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors shadow h-9 px-4 py-2 bg-foreground text-background hover:bg-primary" type="button">Войти</button>
+    </div>
+    <nav class="flex gap-5 overflow-x-auto border-t border-border px-6 py-2 text-sm font-medium lg:hidden"><a href="index.html">Главная</a><a href="catalog.html">Каталог</a><a href="rating.html">Рейтинг</a><a href="duels.html">Дуэли</a><a href="battles.html">Батлы</a><a href="chat.html">Чат</a><a href="shop.html">Магазин</a><a href="ideas.html" aria-current="page">Идея</a></nav>
+  </header>
+  <main>
+    <div class="mx-auto max-w-7xl px-6 py-12 sm:py-16">
+      <p class="text-sm font-bold uppercase tracking-widest text-primary">Твоя Спадчына</p>
+      <h1 class="mt-4 max-w-3xl font-display text-4xl font-bold leading-tight sm:text-5xl">Предложить идею</h1>
+      <p class="mt-5 mb-10 max-w-2xl text-lg text-muted-foreground">Знаешь место, которое стоит добавить, или придумал, как сделать проект лучше? Напиши нам.</p>
+      <form id="idea-form" class="idea-form">
+        <label>Как к тебе обращаться<input name="name" autocomplete="name" maxlength="80" placeholder="Имя или псевдоним"></label>
+        <label>Email для ответа <span class="text-sm font-normal text-muted-foreground">Необязательно</span><input name="email" type="email" autocomplete="email" maxlength="150" placeholder="you@example.com"></label>
+        <label>Твоя идея<textarea name="message" required minlength="8" maxlength="2000" placeholder="Расскажи о месте, задании или улучшении сайта..."></textarea></label>
+        <div class="flex flex-wrap items-center gap-4"><button class="backend-primary-button" type="submit">Отправить идею</button><p class="text-sm text-muted-foreground">До 2000 символов</p></div>
+        <p class="backend-status" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </main>
+  <footer class="border-t border-border bg-foreground py-8 text-background"><div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6"><span class="font-display font-bold">Спадчына</span><a href="profile.html" class="underline">Вернуться в профиль</a></div></footer>
+  <script type="module" src="integration.js"></script>
+</body>
+</html>

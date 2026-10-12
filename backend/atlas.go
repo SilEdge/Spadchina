@@ -175,9 +175,15 @@ func saveAtlasResultHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "place not found", http.StatusNotFound)
 		return
 	}
+	data := readAtlasData()
+	if request.MaxScore != len(data.Quizzes[request.Slug]) {
+		respondError(w, "invalid number of questions", http.StatusBadRequest)
+		return
+	}
 	if _, err := db.Exec(`INSERT INTO results (user_id, article_id, score, max_score)
 		VALUES (?, ?, ?, ?) ON CONFLICT(user_id, article_id) DO UPDATE SET
-		score=excluded.score, max_score=excluded.max_score, created_at=CURRENT_TIMESTAMP`,
+		score=excluded.score, max_score=excluded.max_score, created_at=CURRENT_TIMESTAMP
+		WHERE excluded.score > results.score`,
 		claims.UserID, articleID, request.Score, request.MaxScore); err != nil {
 		respondError(w, "could not save result", http.StatusInternalServerError)
 		return

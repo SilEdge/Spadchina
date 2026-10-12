@@ -293,52 +293,61 @@ func getProgressHandler(w http.ResponseWriter, r *http.Request) {
 
 func recalcPoints(userID int) {
 	var total int
-	db.QueryRow(`SELECT MAX(0, COALESCE((SELECT SUM(score * 10 + CASE WHEN score = max_score THEN 20 WHEN score >= max_score * 0.7 THEN 10 ELSE 0 END) FROM results WHERE user_id = ?), 0) - COALESCE((SELECT SUM(ri.cost) FROM user_rewards ur JOIN reward_items ri ON ri.id=ur.reward_id WHERE ur.user_id = ?), 0))`, userID, userID).Scan(&total)
+	db.QueryRow(`SELECT MAX(0,
+		COALESCE((SELECT SUM(CASE WHEN ap.slug IS NOT NULL THEN ap.points * r.score / r.max_score
+			ELSE r.score * 10 + CASE WHEN r.score = r.max_score THEN 20 WHEN r.score >= r.max_score * 0.7 THEN 10 ELSE 0 END END)
+			FROM results r LEFT JOIN atlas_places ap ON ap.article_id = r.article_id WHERE r.user_id = ?), 0)
+		+ COALESCE((SELECT COUNT(*) * 40 FROM duels WHERE winner_id = ? AND status = 'completed'), 0)
+		+ COALESCE((SELECT SUM(reward_points) FROM team_battle_participants WHERE user_id = ?), 0)
+		- COALESCE((SELECT SUM(ri.cost) FROM user_rewards ur JOIN reward_items ri ON ri.id = ur.reward_id WHERE ur.user_id = ?), 0))`, userID, userID, userID, userID).Scan(&total)
 	db.Exec("UPDATE users SET points = ? WHERE id = ?", total, userID)
 }
 
 func getLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
 	period := r.URL.Query().Get("period")
-	query := `
-		SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username), u.points,
-			COUNT(r.id) AS completed_count,
-			COALESCE(SUM(r.score), 0) AS correct_count
-		FROM users u
-		LEFT JOIN results r ON u.id = r.user_id
-		WHERE u.role = 'user'
-		GROUP BY u.id
-		HAVING COUNT(r.id) > 0
-		ORDER BY correct_count DESC, u.points DESC, u.username ASC
-		LIMIT 50
-	`
-	var rows *sql.Rows
-	var err error
+	modifier := ""
 	switch period {
 	case "", "all":
-		rows, err = db.Query(query)
 	case "week", "month":
-		modifier := "-7 days"
+		modifier = "-7 days"
 		if period == "month" {
 			modifier = "-30 days"
 		}
-		rows, err = db.Query(`
-			SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username),
-				COALESCE(SUM(r.score * 10 + CASE WHEN r.score = r.max_score THEN 20 WHEN r.score >= r.max_score * 0.7 THEN 10 ELSE 0 END), 0) AS points,
-				COUNT(r.id) AS completed_count,
-				COALESCE(SUM(r.score), 0) AS correct_count
-			FROM users u
-			LEFT JOIN results r ON r.user_id = u.id AND r.created_at >= datetime('now', ?)
-			WHERE u.role = 'user'
-			GROUP BY u.id
-			HAVING COUNT(r.id) > 0
-			ORDER BY correct_count DESC, points DESC, u.username ASC
-			LIMIT 50
-		`, modifier)
 	default:
 		respondError(w, "period must be week, month or all", http.StatusBadRequest)
 		return
 	}
+	quizTime, duelTime, battleTime := "", "", ""
+	args := []interface{}{}
+	if modifier != "" {
+		quizTime = " AND r.created_at >= datetime('now', ?)"
+		duelTime = " AND d.updated_at >= datetime('now', ?)"
+		battleTime = " AND p.updated_at >= datetime('now', ?)"
+		args = []interface{}{modifier, modifier, modifier}
+	}
+	query := `WITH quizzes AS (
+		SELECT r.user_id, COUNT(*) AS completed_count, SUM(r.score) AS correct_count,
+			SUM(CASE WHEN ap.slug IS NOT NULL THEN ap.points * r.score / r.max_score
+				ELSE r.score * 10 + CASE WHEN r.score = r.max_score THEN 20 WHEN r.score >= r.max_score * 0.7 THEN 10 ELSE 0 END END) AS points
+		FROM results r LEFT JOIN atlas_places ap ON ap.article_id = r.article_id
+		WHERE 1=1` + quizTime + ` GROUP BY r.user_id
+	), duels_won AS (
+		SELECT d.winner_id AS user_id, COUNT(*) * 40 AS points FROM duels d
+		WHERE d.status = 'completed' AND d.winner_id IS NOT NULL` + duelTime + ` GROUP BY d.winner_id
+	), team_rewards AS (
+		SELECT p.user_id, SUM(p.reward_points) AS points FROM team_battle_participants p
+		WHERE p.reward_points > 0` + battleTime + ` GROUP BY p.user_id
+	)
+	SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username),
+		COALESCE(q.points, 0) + COALESCE(d.points, 0) + COALESCE(t.points, 0) AS earned,
+		COALESCE(q.completed_count, 0), COALESCE(q.correct_count, 0)
+	FROM users u LEFT JOIN quizzes q ON q.user_id = u.id
+	LEFT JOIN duels_won d ON d.user_id = u.id
+	LEFT JOIN team_rewards t ON t.user_id = u.id
+	WHERE u.role = 'user' AND (q.user_id IS NOT NULL OR d.user_id IS NOT NULL OR t.user_id IS NOT NULL)
+	ORDER BY earned DESC, correct_count DESC, u.username ASC LIMIT 50`
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
 		return
@@ -1114,8 +1123,18 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "question count must be from 5 to 30", http.StatusBadRequest)
 		return
 	}
+	if req.TimeSeconds == 0 {
+		req.TimeSeconds = 20
+	}
+	if req.TimeSeconds != 15 && req.TimeSeconds != 20 && req.TimeSeconds != 30 && req.TimeSeconds != 60 {
+		respondError(w, "time per question must be 15, 20, 30 or 60 seconds", http.StatusBadRequest)
+		return
+	}
 
 	categoryLabel, ok := findTeamBattleCategoryLabel(req.Category)
+	if req.Category == "all" {
+		categoryLabel, ok = "Все темы", true
+	}
 	if !ok {
 		respondError(w, "category not found", http.StatusNotFound)
 		return
@@ -1136,9 +1155,9 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	res, err := tx.Exec(`
-		INSERT INTO team_battles (code, creator_id, category, category_label, questions)
-		VALUES (?, ?, ?, ?, ?)
-	`, code, claims.UserID, req.Category, categoryLabel, string(questionsJSON))
+		INSERT INTO team_battles (code, creator_id, category, category_label, questions, time_seconds)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, code, claims.UserID, req.Category, categoryLabel, string(questionsJSON), req.TimeSeconds)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "constraint") {
 			respondError(w, "code already exists", http.StatusConflict)
@@ -1219,6 +1238,10 @@ func finishTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string
 		respondError(w, "team battle not found", http.StatusNotFound)
 		return
 	}
+	if !battle.Started {
+		respondError(w, "team battle has not started", http.StatusConflict)
+		return
+	}
 
 	var req DuelFinishRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1227,15 +1250,15 @@ func finishTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string
 	}
 
 	score := scoreTeamBattleAnswers(battle.Questions, req.Answers)
-	_, err := db.Exec(`
-		INSERT INTO team_battle_participants (battle_id, user_id, score, updated_at)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(battle_id, user_id) DO UPDATE SET
-			score = excluded.score,
-			updated_at = CURRENT_TIMESTAMP
-	`, battle.ID, claims.UserID, score)
+	result, err := db.Exec(`UPDATE team_battle_participants SET score = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE battle_id = ? AND user_id = ? AND score = -1`, score, battle.ID, claims.UserID)
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		respondError(w, "join the battle before playing, or your result is already saved", http.StatusConflict)
 		return
 	}
 
@@ -1255,7 +1278,7 @@ func respondTeamBattleByCode(w http.ResponseWriter, code string) {
 func getTeamBattleByCode(code string) (TeamBattle, bool) {
 	row := db.QueryRow(`
 		SELECT tb.id, tb.code, u.username, tb.category, tb.category_label,
-			tb.questions, tb.started, tb.created_at, tb.updated_at
+		tb.questions, tb.started, tb.time_seconds, tb.created_at, tb.updated_at
 		FROM team_battles tb
 		JOIN users u ON u.id = tb.creator_id
 		WHERE tb.code = ?
@@ -1272,6 +1295,7 @@ func getTeamBattleByCode(code string) (TeamBattle, bool) {
 		&battle.CategoryLabel,
 		&questionsRaw,
 		&started,
+		&battle.TimeSeconds,
 		&battle.CreatedAt,
 		&battle.UpdatedAt,
 	)
@@ -1331,9 +1355,9 @@ func buildTeamBattleQuestions(category string, count int) ([]DuelQuestion, error
 	rows, err := db.Query(`
 		SELECT category, category_label, questions
 		FROM articles
-		WHERE category = ?
+		WHERE (? = 'all' OR category = ?)
 		ORDER BY id
-	`, category)
+	`, category, category)
 	if err != nil {
 		return nil, err
 	}
@@ -1358,9 +1382,6 @@ func buildTeamBattleQuestions(category string, count int) ([]DuelQuestion, error
 			question.CategoryLabel = label
 			questions = append(questions, question)
 			seen[question.ID] = true
-			if len(questions) == count {
-				return questions, nil
-			}
 		}
 	}
 
@@ -1368,12 +1389,10 @@ func buildTeamBattleQuestions(category string, count int) ([]DuelQuestion, error
 		return nil, fmt.Errorf("not enough questions for category")
 	}
 
-	setCount := 5
-	setIndex := int(time.Now().UnixNano() % int64(setCount))
-	offset := (len(questions) * setIndex) / setCount
+	rand.Shuffle(len(questions), func(i, j int) { questions[i], questions[j] = questions[j], questions[i] })
 	selected := make([]DuelQuestion, 0, count)
 	for i := 0; i < count; i++ {
-		selected = append(selected, questions[(offset+i)%len(questions)])
+		selected = append(selected, questions[i])
 	}
 	return selected, nil
 }
@@ -1440,7 +1459,7 @@ func awardTeamBattlePoints(battleID int) {
 		if err != nil {
 			continue
 		}
-		db.Exec("UPDATE users SET points = points + ? WHERE id = ?", delta, participant.UserID)
+		recalcPoints(participant.UserID)
 	}
 }
 
@@ -1474,15 +1493,16 @@ func finalizeDuelIfReady(duelID int) {
 		winnerID = opponentID
 	}
 
+	var selectedWinner interface{}
 	if winnerID > 0 {
-		db.Exec("UPDATE users SET points = points + 40 WHERE id = ?", winnerID)
-		db.Exec(`
-			UPDATE duels
-			SET status = 'completed', winner_id = ?, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ?
-		`, winnerID, duelID)
-		return
+		selectedWinner = winnerID
 	}
-
-	db.Exec("UPDATE duels SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?", duelID)
+	result, err := db.Exec(`UPDATE duels SET status = 'completed', winner_id = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = 'active'`, selectedWinner, duelID)
+	if err == nil {
+		affected, _ := result.RowsAffected()
+		if affected == 1 && winnerID > 0 {
+			recalcPoints(winnerID)
+		}
+	}
 }

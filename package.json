@@ -8,6 +8,7 @@
     "dev:backend": "cd backend && go run .",
     "build": "vite build",
     "lint": "eslint .",
+    "audit:assets": "node scripts/audit-assets.mjs",
     "test:backend": "cd backend && go test ./...",
     "preview": "vite preview"
   },
