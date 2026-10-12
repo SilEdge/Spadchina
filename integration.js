@@ -176,7 +176,19 @@ async function installAuth() {
     try {
       const user = cache.user || await api('/me'); cache.user = user;
       document.querySelectorAll('header button').forEach((button) => {
-        if (button.textContent.trim() === 'Войти') { button.textContent = 'Профиль'; button.title = `${user.name} · ${user.points} баллов`; }
+        if (button.textContent.trim() === 'Войти') {
+          button.textContent = 'Профиль'; button.title = `${user.name} · ${user.points} баллов`;
+          if (!button.parentElement.querySelector('[data-header-logout]')) {
+            const logout = document.createElement('button');
+            logout.type = 'button'; logout.dataset.headerLogout = 'true'; logout.className = button.className;
+            logout.textContent = 'Выйти'; logout.setAttribute('aria-label', 'Выйти из аккаунта');
+            logout.addEventListener('click', () => {
+              localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); cache.user = null;
+              location.href = 'index.html';
+            });
+            button.insertAdjacentElement('afterend', logout);
+          }
+        }
       });
     } catch {
       localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY);
@@ -318,15 +330,33 @@ async function installLeaderboard() {
   const oldList = content.querySelector('ol');
   if (!podium || !oldList) return;
   podium.classList.add('backend-podium');
+  const demoRanking = (period) => {
+    const multiplier = period === 'all' ? 3 : period === 'month' ? 2 : 1;
+    return [
+      { name: 'Алеся К.', points: 1040 * multiplier, completed_count: 18 * multiplier },
+      { name: 'Микола Д.', points: 930 * multiplier, completed_count: 16 * multiplier },
+      { name: 'Дарья С.', points: 870 * multiplier, completed_count: 15 * multiplier },
+      { name: 'Ян Б.', points: 790 * multiplier, completed_count: 13 * multiplier },
+      { name: 'Вера М.', points: 720 * multiplier, completed_count: 12 * multiplier },
+      { name: 'Павел Л.', points: 650 * multiplier, completed_count: 11 * multiplier },
+      { name: 'Надежда Р.', points: 590 * multiplier, completed_count: 10 * multiplier },
+      { name: 'Тимур В.', points: 510 * multiplier, completed_count: 9 * multiplier },
+    ];
+  };
+  const paintRanking = (ranking, demo = false) => {
+    podium.innerHTML = ranking.slice(0, 3).map((person, index) => `<article class="backend-podium-card${demo ? ' is-demo' : ''}"><span>${['🥇', '🥈', '🥉'][index]}</span><b>${esc(person.name || person.username)}</b><strong>${person.points} баллов</strong></article>`).join('');
+    oldList.innerHTML = ranking.slice(3).map((person, index) => `<li class="backend-rank-row${demo ? ' is-demo' : ''}"><span>${index + 4}</span><b>${esc(person.name || person.username)}</b><span>${person.completed_count} мест</span><strong>${person.points}</strong></li>`).join('');
+    oldList.setAttribute('aria-label', demo ? 'Демонстрационный рейтинг, имена вымышлены' : 'Рейтинг пользователей из базы данных');
+    if (demo) status(content, 'Демонстрационный рейтинг · имена и результаты вымышлены. Реальные участники появятся после сохранения результатов.');
+  };
   const render = async (period = 'week') => {
     try {
       const ranking = await api(`/leaderboard?period=${period}`);
-      const top = ranking.slice(0, 3);
-      podium.innerHTML = top.length ? top.map((person, index) => `<article class="backend-podium-card"><span>${['🥇', '🥈', '🥉'][index]}</span><b>${esc(person.name || person.username)}</b><strong>${person.points} баллов</strong></article>`).join('') : '<p>Пока нет результатов за этот период.</p>';
-      oldList.innerHTML = ranking.length ? ranking.slice(3).map((person, index) => `<li class="backend-rank-row"><span>${index + 4}</span><b>${esc(person.name || person.username)}</b><span>${person.completed_count} мест</span><strong>${person.points}</strong></li>`).join('') : '';
-      oldList.setAttribute('aria-label', 'Рейтинг пользователей из базы данных');
-      if (!ranking.length) status(content, 'Пройдите задания, чтобы первым появиться в рейтинге.');
-    } catch (error) { status(content, `Не удалось загрузить рейтинг: ${error.message}`, true); }
+      if (ranking.length) paintRanking(ranking);
+      else paintRanking(demoRanking(period), true);
+    } catch {
+      paintRanking(demoRanking(period), true);
+    }
   };
   filterRow.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => {
     const period = labels[button.textContent.trim()]; if (!period) return;

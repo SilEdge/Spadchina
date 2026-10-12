@@ -1704,9 +1704,30 @@ em { font-style: normal; }
 .backend-join-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 20px; border: 1px solid var(--border); background: var(--card); }
 .backend-join-form label { flex: 1 1 240px; }
 .backend-game-area { padding: 20px 0; }
+.yandex-atlas-map { display: block; width: 100%; height: clamp(380px, 62vw, 620px); border: 0; background: var(--muted); }
+.backend-podium-card { position: relative; overflow: hidden; animation: leaderboard-arrive .65s cubic-bezier(.2,.75,.25,1) both; }
+.backend-podium-card:nth-child(2) { animation-delay: .1s; }
+.backend-podium-card:nth-child(3) { animation-delay: .2s; }
+.backend-podium-card.is-demo, .backend-rank-row.is-demo { background-image: linear-gradient(135deg, color-mix(in srgb, var(--primary) 7%, transparent), transparent 65%); }
+.backend-rank-row { animation: leaderboard-arrive .45s ease both; }
+.backend-rank-row:nth-child(2) { animation-delay: .04s; }
+.backend-rank-row:nth-child(3) { animation-delay: .08s; }
+.backend-rank-row:nth-child(4) { animation-delay: .12s; }
+.backend-rank-row:nth-child(5) { animation-delay: .16s; }
+.backend-rank-row:nth-child(6) { animation-delay: .2s; }
+.backend-rank-row:nth-child(7) { animation-delay: .24s; }
+@keyframes leaderboard-arrive { from { opacity:  0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+.profile-page main > div > section:first-child { isolation: isolate; }
+.profile-page main > div > section:first-child::after { position: absolute; z-index: 0; inset: 0; pointer-events: none; content: ""; opacity: .13; background-image: linear-gradient(rgb(255 255 255 / .4) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / .4) 1px, transparent 1px); background-size: 42px 42px; mask-image: linear-gradient(115deg, #000, transparent 82%); }
+.profile-page main > div > section:first-child > * { position: relative; z-index: 1; }
+.profile-page .backend-game-panel { background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 36px 36px; }
 @media (max-width: 640px) {
   .backend-auth-card { padding: 28px 20px 20px; }
   .backend-podium-card { padding: 12px; }
   .backend-rank-row { grid-template-columns: 26px minmax(70px,1fr) auto; gap: 8px; padding: 12px 8px; font-size: 13px; }
   .backend-rank-row span:nth-of-type(2) { display: none; }
+  .yandex-atlas-map { height: 430px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .backend-podium-card, .backend-rank-row { animation: none; }
 }
