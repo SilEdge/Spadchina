@@ -23,7 +23,7 @@ if (-not (Test-LocalPort 8081)) {
     $binary = Join-Path $env:TEMP 'spadchina-backend-local.exe'
     Push-Location $backendRoot
     try {
-        & go build -o $binary .
+        & go build -o $binary ./cmd/server
         if ($LASTEXITCODE -ne 0) { throw 'Go backend build failed' }
     } finally {
         Pop-Location

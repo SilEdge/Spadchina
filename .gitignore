@@ -8,6 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 .env
 backend/.env
+.private/
+.vercel/
 
 node_modules
 dist

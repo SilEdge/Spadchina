@@ -1,10 +1,12 @@
-package main
+package backend
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 func getPort() string {
@@ -15,7 +17,8 @@ func getPort() string {
 	return port
 }
 
-func main() {
+// Run starts the development server with schema setup and optional Telegram polling.
+func Run() {
 	initDB()
 	defer db.Close()
 	startTelegramBot()
@@ -30,6 +33,32 @@ func main() {
 	addr := host + ":" + port
 	log.Println("Server starting on http://" + addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+var cloudOnce sync.Once
+var cloudHandler http.Handler
+var cloudError error
+
+// Handler serves the migrated database directly from a Vercel Function.
+// Schema setup and seeding are performed before deployment, not on cold starts.
+func Handler(w http.ResponseWriter, r *http.Request) {
+	cloudOnce.Do(func() {
+		if len(strings.TrimSpace(os.Getenv("JWT_SECRET"))) < 32 {
+			cloudError = fmt.Errorf("JWT_SECRET is required for cloud sessions")
+			return
+		}
+		cloudError = openDatabase()
+		if cloudError == nil {
+			cloudHandler = newServerMux()
+		}
+	})
+	w.Header().Set("Cache-Control", "no-store")
+	if cloudError != nil {
+		log.Printf("cloud configuration: %v", cloudError)
+		respondError(w, "Сервер временно недоступен. Попробуйте позже.", http.StatusServiceUnavailable)
+		return
+	}
+	cloudHandler.ServeHTTP(w, r)
 }
 
 func newServerMux() http.Handler {

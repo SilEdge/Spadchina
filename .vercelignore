@@ -1,0 +1,7 @@
+.private/
+.pz-work/
+.playwright-mcp/
+backend/*.db
+backend/.env
+*.log
+*.docx

@@ -1,36 +1,70 @@
-package main
+package backend
 
 import (
 	"database/sql"
+	"errors"
 	"log"
+	"net/url"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/tursodatabase/libsql-client-go/libsql"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
 var db *sql.DB
 
-func initDB() {
-	var err error
+func openDatabase() error {
+	remoteURL := strings.TrimSpace(os.Getenv("TURSO_DATABASE_URL"))
+	if remoteURL != "" {
+		connectionURL, err := url.Parse(remoteURL)
+		if err != nil || connectionURL.Host == "" || (connectionURL.Scheme != "libsql" && connectionURL.Scheme != "https") {
+			return errors.New("invalid Turso database URL")
+		}
+		authToken := strings.TrimSpace(os.Getenv("TURSO_AUTH_TOKEN"))
+		if authToken == "" {
+			return errors.New("TURSO_AUTH_TOKEN is required")
+		}
+		connector, err := libsql.NewConnector(connectionURL.String(), libsql.WithAuthToken(authToken))
+		if err != nil {
+			return errors.New("cannot initialize Turso connection")
+		}
+		connection := sql.OpenDB(connector)
+		connection.SetMaxOpenConns(4)
+		connection.SetMaxIdleConns(4)
+		connection.SetConnMaxIdleTime(30 * time.Second)
+		db = connection
+		return nil
+	}
+	if os.Getenv("VERCEL") != "" {
+		return errors.New("TURSO_DATABASE_URL is required on Vercel")
+	}
 	databasePath := strings.TrimSpace(os.Getenv("DATABASE_PATH"))
 	if databasePath == "" {
 		databasePath = "./cultcode.db"
 	}
-	db, err = sql.Open("sqlite", databasePath)
+	connection, err := sql.Open("sqlite", databasePath)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+	db = connection
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 	if _, err = db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err = db.Ping(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func initDB() {
+	if err := openDatabase(); err != nil {
 		log.Fatal(err)
 	}
-
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

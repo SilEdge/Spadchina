@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"database/sql"
@@ -67,6 +67,10 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		VALUES (?, ?, ?, ?)
 	`, username, name, email, string(hash))
 	if err != nil {
+		if !strings.Contains(err.Error(), "UNIQUE constraint") {
+			respondError(w, "Сервер временно недоступен. Попробуйте позже.", http.StatusServiceUnavailable)
+			return
+		}
 		respondError(w, "email already exists", http.StatusConflict)
 		return
 	}
@@ -106,6 +110,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		WHERE lower(email) = ?
 	`, email).Scan(&user.ID, &user.Username, &user.Name, &user.Email, &user.Password, &user.Role, &user.Points)
 	if err != nil {
+		if err != sql.ErrNoRows {
+			respondError(w, "Сервер временно недоступен. Попробуйте позже.", http.StatusServiceUnavailable)
+			return
+		}
 		respondError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -161,6 +169,10 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		WHERE id = ?
 	`, claims.UserID).Scan(&user.ID, &user.Username, &user.Name, &user.Email, &user.Role, &user.Points)
 	if err != nil {
+		if err != sql.ErrNoRows {
+			respondError(w, "Сервер временно недоступен. Попробуйте позже.", http.StatusServiceUnavailable)
+			return
+		}
 		respondError(w, "user not found", http.StatusNotFound)
 		return
 	}

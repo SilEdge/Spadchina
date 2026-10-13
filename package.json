@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:backend": "cd backend && go run .",
+    "dev:backend": "cd backend && go run ./cmd/server",
     "build": "vite build",
     "lint": "eslint .",
     "audit:assets": "node scripts/audit-assets.mjs",
-    "test:backend": "cd backend && go test ./...",
+    "test:backend": "go test ./backend/... ./api/... ./tests/...",
     "preview": "vite preview"
   },
   "dependencies": {
