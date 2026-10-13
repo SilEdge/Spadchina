@@ -30,6 +30,10 @@ export default async function handler(req, res) {
       body,
       signal: AbortSignal.timeout(20000),
     });
+    if (!response.headers.get('content-type')?.includes('application/json') && !response.ok) {
+      res.status(502).json({ error: 'Сервер временно недоступен. Попробуйте ещё раз позже.' });
+      return;
+    }
     const upstreamBody = Buffer.from(await response.arrayBuffer());
     res.status(response.status);
     res.setHeader('Content-Type', response.headers.get('content-type') || 'application/json');

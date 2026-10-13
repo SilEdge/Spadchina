@@ -144,7 +144,7 @@ async function installAuth() {
     if (button.textContent.trim() !== 'Войти') return;
     button.onclick = null;
     button.addEventListener('click', () => {
-      if (token()) location.href = 'profile.html';
+      if (button.textContent.trim() === 'Профиль' && token()) location.href = 'profile.html';
       else openAuthModal();
     });
   });
@@ -190,11 +190,14 @@ async function installAuth() {
         location.href = safeNextPage();
       } catch (error) { status(pageForm, error.message, true); submit.disabled = false; }
     });
-    if (token()) location.href = 'profile.html';
   }
   if (token()) {
     try {
       const user = cache.user || await api('/me'); cache.user = user;
+      if (location.pathname.endsWith('/login.html')) {
+        location.href = 'profile.html';
+        return;
+      }
       document.querySelectorAll('header button').forEach((button) => {
         if (button.textContent.trim() === 'Войти') {
           button.textContent = 'Профиль'; button.title = `${user.name} · ${user.points} баллов`;
@@ -224,8 +227,8 @@ async function installAuth() {
         });
       }
     } catch (error) {
-      if (error.status === 401 || error.status === 403) {
-        localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY);
+      if (error.status === 401 || error.status === 403 || error.status === 404) {
+        localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); cache.user = null;
       }
     }
   }
