@@ -1794,4 +1794,17 @@ em { font-style: normal; }
 .admin-item { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 20px; border: 1px solid var(--border); background: var(--card); }
 .admin-item strong, .admin-item small { display: block; }
 .admin-item small { margin-top: 5px; color: var(--muted-foreground); }
+.admin-item .admin-actions { flex: 0 0 auto; }
+.admin-actions button.danger { border-color: #a42a25; background: #a42a25; color: #fff; }
+.admin-user-profile { max-width: 900px; margin: 22px 0; padding: clamp(22px, 4vw, 38px); border: 1px solid var(--border); background: var(--card); }
+.admin-user-profile h2 { margin: 18px 0 4px; font-family: Unbounded, sans-serif; font-size: clamp(24px, 4vw, 38px); }
+.admin-user-profile h3 { margin: 28px 0 14px; font-family: Unbounded, sans-serif; font-size: 20px; }
+.admin-profile-back { padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-weight: 700; cursor: pointer; }
+.admin-profile-handle { margin: 0; color: var(--muted-foreground); }
+.admin-profile-facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.admin-profile-facts span { padding: 8px 12px; border: 1px solid var(--border); background: var(--background); }
+.admin-user-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.admin-user-stats article { display: grid; gap: 6px; padding: 16px; border: 1px solid var(--border); background: var(--background); }
+.admin-user-stats strong { font-family: Unbounded, sans-serif; font-size: 22px; }
+.admin-user-stats span { color: var(--muted-foreground); font-size: 13px; }
 @media (max-width: 650px) { .admin-item { align-items: flex-start; flex-direction: column; } }

@@ -321,6 +321,20 @@ func TestServerWorkflow(t *testing.T) {
 	if editedTitle != "Мирский замок — отредактирован" {
 		t.Fatal("edited atlas article was overwritten by seeding")
 	}
+	var profile struct {
+		User  User `json:"user"`
+		Stats struct {
+			ArticlesCompleted int `json:"articles_completed"`
+			CorrectAnswers    int `json:"correct_answers"`
+		} `json:"stats"`
+	}
+	requestJSON(t, client, http.MethodGet, fmt.Sprintf("%s/api/admin/users/%d", server.URL, first.User.ID), admin.Token, nil, http.StatusOK, &profile)
+	if profile.User.ID != first.User.ID || profile.User.Name != "Alpha Updated" || profile.Stats.ArticlesCompleted == 0 {
+		t.Fatalf("admin profile is missing user identity or quiz stats: %+v", profile)
+	}
+	requestJSON(t, client, http.MethodDelete, fmt.Sprintf("%s/api/admin/users/%d", server.URL, admin.User.ID), admin.Token, nil, http.StatusBadRequest, nil)
+	requestJSON(t, client, http.MethodDelete, fmt.Sprintf("%s/api/admin/users/%d", server.URL, first.User.ID), admin.Token, nil, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodGet, fmt.Sprintf("%s/api/admin/users/%d", server.URL, first.User.ID), admin.Token, nil, http.StatusNotFound, nil)
 }
 
 func TestAtlasPersistenceAndRewards(t *testing.T) {
