@@ -210,6 +210,15 @@ async function installAuth() {
           }
         }
       });
+      if (user.role === 'admin') {
+        document.querySelectorAll('header nav').forEach((nav) => {
+          if (nav.querySelector('[data-admin-link]')) return;
+          const link = document.createElement('a');
+          link.href = 'admin.html'; link.dataset.adminLink = 'true'; link.textContent = 'Админка';
+          link.className = 'backend-admin-link';
+          nav.append(link);
+        });
+      }
     } catch (error) {
       if (error.status === 401 || error.status === 403) {
         localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY);
@@ -540,7 +549,16 @@ async function installShop() {
   const main = document.querySelector('main'); if (!main || !location.pathname.endsWith('/shop.html')) return;
   try {
     const [items, owned] = await Promise.all([api('/rewards'), token() ? api('/rewards/my') : Promise.resolve([])]);
-    const buttons = [...main.querySelectorAll('button')].filter((button) => button.textContent.trim() === 'Получить');
+    const firstCard = [...main.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Получить')?.closest('.group.border');
+    const grid = firstCard?.parentElement;
+    if (!grid) throw new Error('Не найден каталог наград');
+    grid.innerHTML = items.map((item) => `<article class="group border border-border bg-card">
+      <div class="grid aspect-[4/3] place-items-center bg-secondary text-6xl" aria-hidden="true">${esc(item.icon)}</div>
+      <div class="p-6"><p class="text-xs font-semibold uppercase tracking-widest text-primary">Награда</p>
+      <h3 class="mt-1 min-h-14 font-display text-xl font-bold leading-snug">${esc(item.name)}</h3>
+      <div class="mt-5 flex items-center justify-between gap-3"><strong>${esc(item.cost)} баллов</strong>
+      <button type="button" class="backend-primary-button" data-reward-id="${esc(item.id)}">Получить</button></div></div></article>`).join('');
+    const buttons = [...grid.querySelectorAll('[data-reward-id]')];
     const ownedIDs = new Set(owned.map((item) => item.id));
     const points = [...main.querySelectorAll('span,p')].find((item) => /У вас .*баллов/.test(item.textContent));
     const user = token() ? await api('/me') : null;
@@ -548,13 +566,7 @@ async function installShop() {
     items.forEach((item, index) => {
       const button = buttons[index]; if (!button) return;
       button.dataset.rewardId = item.id;
-      const card = button.closest('.group.border') || button.parentElement.parentElement;
-      const title = card.querySelector('h3, .font-display.text-xl') || [...card.querySelectorAll('p')].find((node) => node.className.includes('font-display'));
-      if (title) title.textContent = item.name;
-      const cost = [...card.querySelectorAll('span')].find((node) => /^\s*\d+\s*$/.test(node.textContent));
-      if (cost) cost.textContent = String(item.cost);
-      const icon = [...card.querySelectorAll('svg')].find((node) => node.getAttribute('class')?.includes('lucide-star'));
-      if (icon) icon.setAttribute('aria-label', `${item.cost} баллов`);
+      const card = button.closest('.group.border');
       if (ownedIDs.has(item.id)) { button.textContent = 'Получено'; button.disabled = true; }
       button.onclick = async () => {
         if (!token()) { openAuthModal(); return; }

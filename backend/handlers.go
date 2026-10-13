@@ -916,6 +916,7 @@ func scanDuel(scanner duelScanner) (Duel, bool) {
 }
 
 func buildDuelQuestions(count int) ([]DuelQuestion, error) {
+	custom := loadBattleQuestions("duel", "all")
 	rows, err := db.Query("SELECT category, category_label, questions FROM articles ORDER BY id")
 	if err != nil {
 		return nil, err
@@ -939,7 +940,7 @@ func buildDuelQuestions(count int) ([]DuelQuestion, error) {
 		}
 	}
 
-	if len(allQuestions) < count {
+	if len(allQuestions)+len(custom) < count {
 		return nil, fmt.Errorf("not enough questions")
 	}
 
@@ -947,7 +948,10 @@ func buildDuelQuestions(count int) ([]DuelQuestion, error) {
 	random.Shuffle(len(allQuestions), func(i, j int) {
 		allQuestions[i], allQuestions[j] = allQuestions[j], allQuestions[i]
 	})
-	return allQuestions[:count], nil
+	if len(custom) >= count {
+		return custom[:count], nil
+	}
+	return append(custom, allQuestions[:count-len(custom)]...), nil
 }
 
 func scoreDuelAnswers(questions []DuelQuestion, answers []DuelAnswer) int {
@@ -1085,6 +1089,25 @@ func getTeamBattleCategoriesHandler(w http.ResponseWriter, r *http.Request) {
 			item.QuestionCount = countQuestionsForCategory(item.Category)
 			categories = append(categories, item)
 		}
+	}
+	customRows, err := db.Query("SELECT category, MIN(category_label) FROM battle_questions WHERE mode IN ('team','both') GROUP BY category")
+	if err == nil {
+		for customRows.Next() {
+			var category, label string
+			if customRows.Scan(&category, &label) == nil {
+				found := false
+				for _, item := range categories {
+					if item.Category == category {
+						found = true
+						break
+					}
+				}
+				if !found {
+					categories = append(categories, TeamBattleCategory{Category: category, CategoryLabel: label, QuestionCount: countQuestionsForCategory(category)})
+				}
+			}
+		}
+		customRows.Close()
 	}
 	respondJSON(w, categories, http.StatusOK)
 }
@@ -1348,10 +1371,15 @@ func findTeamBattleCategoryLabel(category string) (string, bool) {
 		ORDER BY id
 		LIMIT 1
 	`, category).Scan(&label)
+	if err == nil {
+		return label, true
+	}
+	err = db.QueryRow("SELECT category_label FROM battle_questions WHERE category=? AND mode IN ('team','both') LIMIT 1", category).Scan(&label)
 	return label, err == nil
 }
 
 func buildTeamBattleQuestions(category string, count int) ([]DuelQuestion, error) {
+	custom := loadBattleQuestions("team", category)
 	rows, err := db.Query(`
 		SELECT category, category_label, questions
 		FROM articles
@@ -1385,13 +1413,16 @@ func buildTeamBattleQuestions(category string, count int) ([]DuelQuestion, error
 		}
 	}
 
-	if len(questions) < count {
+	if len(questions)+len(custom) < count {
 		return nil, fmt.Errorf("not enough questions for category")
 	}
 
 	rand.Shuffle(len(questions), func(i, j int) { questions[i], questions[j] = questions[j], questions[i] })
 	selected := make([]DuelQuestion, 0, count)
-	for i := 0; i < count; i++ {
+	for i := 0; i < len(custom) && i < count; i++ {
+		selected = append(selected, custom[i])
+	}
+	for i := 0; len(selected) < count; i++ {
 		selected = append(selected, questions[i])
 	}
 	return selected, nil

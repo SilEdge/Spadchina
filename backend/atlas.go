@@ -79,7 +79,16 @@ func seedAtlas() {
 		questionsJSON, _ := json.Marshal(questions)
 		contentJSON, _ := json.Marshal([]map[string]string{{"type": "lead", "text": place.Lead}})
 		var articleID int64
-		_ = db.QueryRow("SELECT id FROM articles WHERE title = ? ORDER BY id LIMIT 1", place.Name).Scan(&articleID)
+		knownAtlas := db.QueryRow("SELECT article_id FROM atlas_places WHERE slug = ?", place.ID).Scan(&articleID) == nil
+		if articleID > 0 {
+			var exists int
+			_ = db.QueryRow("SELECT COUNT(*) FROM articles WHERE id = ?", articleID).Scan(&exists)
+			if exists == 0 {
+				continue
+			}
+		} else {
+			_ = db.QueryRow("SELECT id FROM articles WHERE title = ? ORDER BY id LIMIT 1", place.Name).Scan(&articleID)
+		}
 		if articleID == 0 {
 			result, err := db.Exec(`INSERT INTO articles (title, category, category_label, difficulty, difficulty_label, read_time, image, content, questions)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, place.Name, place.Cat, categoryLabels[place.Cat], "medium", "Средний", 5,
@@ -88,7 +97,7 @@ func seedAtlas() {
 				continue
 			}
 			articleID, _ = result.LastInsertId()
-		} else {
+		} else if !knownAtlas {
 			_, _ = db.Exec(`UPDATE articles SET category=?, category_label=?, difficulty=?, difficulty_label=?, read_time=?, image=?, content=?, questions=? WHERE id=?`,
 				place.Cat, categoryLabels[place.Cat], "medium", "Средний", 5, place.Image, string(contentJSON), string(questionsJSON), articleID)
 		}
@@ -110,11 +119,16 @@ func seedAtlas() {
 		{"expert-crown", "👑", "Корона знатока", 2500},
 		{"memory-shield", "🛡", "Щит памяти", 3000},
 	}
+	var rewardSeeded string
+	if err := db.QueryRow("SELECT value FROM app_settings WHERE key='rewards_seeded'").Scan(&rewardSeeded); err == nil {
+		return
+	}
 	for _, reward := range rewards {
 		_, _ = db.Exec(`INSERT INTO reward_items (id, icon, name, cost) VALUES (?, ?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET icon=excluded.icon, name=excluded.name, cost=excluded.cost`,
+			ON CONFLICT(id) DO NOTHING`,
 			reward.id, reward.icon, reward.name, reward.cost)
 	}
+	_, _ = db.Exec("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('rewards_seeded', '1')")
 }
 
 func atlasProgressHandler(w http.ResponseWriter, r *http.Request) {

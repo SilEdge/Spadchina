@@ -117,6 +117,10 @@ func newServerMux() http.Handler {
 	}))
 	mux.HandleFunc("/api/admin/users", adminMiddleware(listUsersHandler))
 	mux.HandleFunc("/api/admin/users/", adminMiddleware(deleteUserHandler))
+	mux.HandleFunc("/api/admin/questions", adminMiddleware(adminQuestionsHandler))
+	mux.HandleFunc("/api/admin/questions/", adminMiddleware(adminQuestionHandler))
+	mux.HandleFunc("/api/admin/rewards", adminMiddleware(adminRewardsHandler))
+	mux.HandleFunc("/api/admin/rewards/", adminMiddleware(adminRewardHandler))
 
 	// CORS preflight global
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

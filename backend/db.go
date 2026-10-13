@@ -74,6 +74,19 @@ func initDB() {
 			name TEXT NOT NULL,
 			cost INTEGER NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS battle_questions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			mode TEXT NOT NULL,
+			category TEXT NOT NULL,
+			category_label TEXT NOT NULL,
+			question TEXT NOT NULL,
+			options TEXT NOT NULL,
+			correct INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS user_rewards (
 			user_id INTEGER NOT NULL,
 			reward_id TEXT NOT NULL,
@@ -209,8 +222,8 @@ func createAdmin() {
 		log.Println("Admin account setup skipped: set ADMIN_EMAIL and ADMIN_PASSWORD to configure it")
 		return
 	}
-	if len(adminPassword) < 12 {
-		log.Println("Admin account setup skipped: ADMIN_PASSWORD must be at least 12 characters")
+	if len(adminPassword) < 6 {
+		log.Println("Admin account setup skipped: ADMIN_PASSWORD must be at least 6 characters")
 		return
 	}
 
@@ -227,7 +240,7 @@ func createAdmin() {
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		_, err := db.Exec(
 			"INSERT INTO users (username, name, email, password, role, points) VALUES (?, ?, ?, ?, ?, ?)",
-			"admin", "admin", adminEmail, string(hash), "admin", 0,
+			uniqueUsernameFromName("admin"), "admin", adminEmail, string(hash), "admin", 0,
 		)
 		if err != nil {
 			log.Fatal(err)

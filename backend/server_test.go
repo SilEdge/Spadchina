@@ -259,6 +259,68 @@ func TestServerWorkflow(t *testing.T) {
 	article.Title = "Тестовый материал обновлён"
 	requestJSON(t, client, http.MethodPut, fmt.Sprintf("%s/api/admin/articles/%d", server.URL, createdArticle.ID), admin.Token, article, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodDelete, fmt.Sprintf("%s/api/admin/articles/%d", server.URL, createdArticle.ID), admin.Token, nil, http.StatusOK, nil)
+	question := battleQuestionInput{Mode: "both", Category: "history", CategoryLabel: "История", Question: "Тестовый вопрос баттла?", Options: []string{"Да", "Нет"}, Correct: 0}
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/admin/questions", first.Token, question, http.StatusForbidden, nil)
+	var createdQuestion struct {
+		ID int `json:"id"`
+	}
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/admin/questions", admin.Token, question, http.StatusCreated, &createdQuestion)
+	question.Question = "Обновлённый вопрос баттла?"
+	requestJSON(t, client, http.MethodPut, fmt.Sprintf("%s/api/admin/questions/%d", server.URL, createdQuestion.ID), admin.Token, question, http.StatusOK, nil)
+	for _, tc := range []struct {
+		name      string
+		questions []DuelQuestion
+	}{
+		{"duel", func() []DuelQuestion {
+			q, err := buildDuelQuestions(10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return q
+		}()},
+		{"team", func() []DuelQuestion {
+			q, err := buildTeamBattleQuestions("history", 5)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return q
+		}()},
+	} {
+		found := false
+		for _, q := range tc.questions {
+			if q.ID == createdQuestion.ID+10000000 && q.Question == question.Question {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("custom question missing from %s", tc.name)
+		}
+	}
+	requestJSON(t, client, http.MethodDelete, fmt.Sprintf("%s/api/admin/questions/%d", server.URL, createdQuestion.ID), admin.Token, nil, http.StatusOK, nil)
+	reward := rewardInput{ID: "test-admin-reward", Icon: "★", Name: "Тестовая награда", Cost: 25}
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/admin/rewards", first.Token, reward, http.StatusForbidden, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/admin/rewards", admin.Token, reward, http.StatusCreated, nil)
+	reward.Name = "Изменённая награда"
+	requestJSON(t, client, http.MethodPut, server.URL+"/api/admin/rewards/"+reward.ID, admin.Token, reward, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodDelete, server.URL+"/api/admin/rewards/"+reward.ID, admin.Token, nil, http.StatusOK, nil)
+	if _, err := db.Exec("DELETE FROM reward_items WHERE id='belt-frame'"); err != nil {
+		t.Fatal(err)
+	}
+	seedAtlas()
+	var restored int
+	_ = db.QueryRow("SELECT COUNT(*) FROM reward_items WHERE id='belt-frame'").Scan(&restored)
+	if restored != 0 {
+		t.Fatal("deleted reward was restored by seeding")
+	}
+	if _, err := db.Exec("UPDATE articles SET title='Мирский замок — отредактирован' WHERE id=(SELECT article_id FROM atlas_places WHERE slug='mir')"); err != nil {
+		t.Fatal(err)
+	}
+	seedAtlas()
+	var editedTitle string
+	_ = db.QueryRow("SELECT title FROM articles WHERE id=(SELECT article_id FROM atlas_places WHERE slug='mir')").Scan(&editedTitle)
+	if editedTitle != "Мирский замок — отредактирован" {
+		t.Fatal("edited atlas article was overwritten by seeding")
+	}
 }
 
 func TestAtlasPersistenceAndRewards(t *testing.T) {

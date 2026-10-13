@@ -89,6 +89,10 @@ var expandedPlaces = []placeSeed{
 }
 
 func seedExpandedArticles() {
+	var seeded string
+	if db.QueryRow("SELECT value FROM app_settings WHERE key='expanded_articles_seeded'").Scan(&seeded) == nil {
+		return
+	}
 	for index, place := range expandedPlaces {
 		var exists int
 		_ = db.QueryRow("SELECT COUNT(*) FROM articles WHERE title = ?", place.Title).Scan(&exists)
@@ -112,6 +116,7 @@ func seedExpandedArticles() {
 			log.Printf("expanded article seed error: %v", err)
 		}
 	}
+	_, _ = db.Exec("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('expanded_articles_seeded', '1')")
 }
 
 func makePlaceQuestions(place placeSeed, baseID int) []DuelQuestion {

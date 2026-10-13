@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api.js';
+import AdminContentManager from './AdminContentManager.jsx';
 
 const emptyArticle = {
   title: '',
@@ -288,7 +289,7 @@ export default function AdminPanel() {
           <div>
             <span className="section-kicker">Управление</span>
             <h2 className="section-title">Панель администратора</h2>
-            <p className="section-subtitle">Добавляй материалы, редактируй викторины и управляй пользователями.</p>
+            <p className="section-subtitle">Управление статьями, вопросами баттлов, наградами и пользователями.</p>
           </div>
         </div>
 
@@ -308,7 +309,11 @@ export default function AdminPanel() {
           >
             Пользователи
           </button>
+          <button className={activeTab === 'questions' ? 'active' : ''} onClick={() => setActiveTab('questions')}>Вопросы баттлов</button>
+          <button className={activeTab === 'rewards' ? 'active' : ''} onClick={() => setActiveTab('rewards')}>Награды</button>
         </div>
+
+        {(activeTab === 'questions' || activeTab === 'rewards') && <AdminContentManager kind={activeTab} />}
 
         {activeTab === 'articles' && (
           <>

@@ -153,7 +153,9 @@ func countQuestionsForCategory(category string) int {
 			total += len(questions)
 		}
 	}
-	return total
+	var custom int
+	_ = db.QueryRow("SELECT COUNT(*) FROM battle_questions WHERE category=? AND mode IN ('team','both')", category).Scan(&custom)
+	return total + custom
 }
 
 func makeTeamBattleSupplementQuestions(category string, label string, startID int, count int) []DuelQuestion {
