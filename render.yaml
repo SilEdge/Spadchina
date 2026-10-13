@@ -2,11 +2,18 @@ services:
   - type: web
     name: spadchina-backend
     runtime: go
-    plan: free
+    plan: starter
     rootDir: backend
     buildCommand: go build -o spadchina-backend .
     startCommand: ./spadchina-backend
+    healthCheckPath: /api/health
+    disk:
+      name: spadchina-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
+      - key: DATABASE_PATH
+        value: /var/data/spadchina.db
       - key: TELEGRAM_SUPPORT_CHAT_ID
         value: "5558125185"
       - key: TELEGRAM_IDEAS_CHAT_ID
@@ -22,4 +29,4 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
