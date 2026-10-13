@@ -1,7 +1,8 @@
 import './data.js';
 import './app.js';
 
-const API_ROOT = `${String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '')}/api`;
+const API_ORIGIN = window.location.hostname.endsWith('.vercel.app') ? '' : String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+const API_ROOT = `${API_ORIGIN}/api`;
 const TOKEN_KEY = 'cultcode_token';
 const PENDING_KEY = 'spadchyna_pending_quiz_results';
 const token = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || '';
