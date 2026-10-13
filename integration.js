@@ -215,7 +215,11 @@ async function installAuth() {
           if (nav.querySelector('[data-admin-link]')) return;
           const link = document.createElement('a');
           link.href = 'admin.html'; link.dataset.adminLink = 'true'; link.textContent = 'Админка';
-          link.className = 'backend-admin-link';
+          link.className = nav.classList.contains('site-primary-nav') ? 'hover:text-primary' : 'whitespace-nowrap';
+          if (location.pathname.endsWith('/admin.html')) {
+            link.classList.add('text-primary');
+            link.setAttribute('aria-current', 'page');
+          }
           nav.append(link);
         });
       }

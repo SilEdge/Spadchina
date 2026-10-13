@@ -5,6 +5,8 @@ document.querySelectorAll('header').forEach(function(header,index){
  var menu=navs[navs.length-1];
  var row=header.querySelector(':scope > div');
  if(!menu||!row||row.querySelector('.mobile-menu-toggle'))return;
+ var desktopNav=row.querySelector('nav');
+ if(desktopNav)desktopNav.classList.add('site-primary-nav');
  var toggle=document.createElement('button');
  toggle.type='button';
  toggle.className='mobile-menu-toggle';
@@ -53,6 +55,6 @@ document.querySelectorAll('header').forEach(function(header,index){
  document.addEventListener('keydown',function(event){
   if(event.key==='Escape'&&header.classList.contains('mobile-menu-open'))closeMenu(true);
  });
- window.addEventListener('resize',function(){if(window.innerWidth>=1024)closeMenu(false)});
+ window.addEventListener('resize',function(){if(window.innerWidth>=1280)closeMenu(false)});
 });
 })();
