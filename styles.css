@@ -1806,6 +1806,7 @@ em { font-style: normal; }
 .admin-editor label { display: grid; gap: 7px; font-weight: 700; }
 .admin-editor input, .admin-editor textarea, .admin-editor select { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 0; background: var(--background); color: var(--foreground); font: inherit; font-weight: 400; }
 .admin-editor textarea { resize: vertical; }
+main a[data-slug] { min-width: 0; overflow-wrap: anywhere; }
 .admin-editor .admin-checkbox { display: flex; align-items: center; gap: 10px; }
 .admin-editor .admin-checkbox input { width: 18px; height: 18px; }
 .admin-idea p { margin-top: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }

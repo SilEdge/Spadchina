@@ -130,13 +130,21 @@ func savePublication(tx *sql.Tx, id int64, input ArticleInput) error {
 		slug = fmt.Sprintf("article-%d", id)
 	}
 	var blocks []struct {
+		Type string `json:"type"`
 		Text string `json:"text"`
 	}
 	_ = json.Unmarshal([]byte(input.Content), &blocks)
+	lead := ""
+	for _, block := range blocks {
+		if block.Type != "credit" && !strings.HasPrefix(block.Text, "Фото:") {
+			lead = block.Text
+			break
+		}
+	}
 	_, err := tx.Exec(`INSERT INTO atlas_places(slug,article_id,region,era,lead,points,x,y,latitude,longitude,map_label,published)
  VALUES(?,?,?,?,?,?,50,50,?,?,?,1) ON CONFLICT(article_id) DO UPDATE SET region=excluded.region,era=excluded.era,lead=excluded.lead,
  points=excluded.points,latitude=excluded.latitude,longitude=excluded.longitude,map_label=excluded.map_label,published=1`,
-		slug, id, input.Region, input.Era, blocks[0].Text, input.Points, input.Latitude, input.Longitude, input.MapLabel)
+		slug, id, input.Region, input.Era, lead, input.Points, input.Latitude, input.Longitude, input.MapLabel)
 	return err
 }
 

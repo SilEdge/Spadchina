@@ -182,12 +182,16 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var blocks []struct {
+			Type string `json:"type"`
 			Text string `json:"text"`
 		}
 		_ = json.Unmarshal([]byte(a.Content), &blocks)
 		lead := ""
-		if len(blocks) > 0 {
-			lead = blocks[0].Text
+		for _, block := range blocks {
+			if block.Type != "credit" && !strings.HasPrefix(block.Text, "Фото:") {
+				lead = block.Text
+				break
+			}
 		}
 		var questions []DuelQuestion
 		if json.Unmarshal([]byte(a.Questions), &questions) != nil {

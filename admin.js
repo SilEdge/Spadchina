@@ -85,7 +85,13 @@ function questionText(raw) {
 function encodeArticle(form) {
   const contentText = form.elements.content.value.trim();
   const questionsText = form.elements.questions.value.trim();
-  const content = contentText.split(/\n\s*\n/).filter(Boolean).map((text, index) => ({ type: index ? 'paragraph' : 'lead', text: text.trim() }));
+  let hasLead = false;
+  const content = contentText.split(/\n\s*\n/).filter(Boolean).map((text) => {
+    const credit = /^(Фото:|Иллюстрация создана с помощью ИИ)/.test(text.trim());
+    const type = credit ? 'credit' : hasLead ? 'paragraph' : 'lead';
+    if (!credit) hasLead = true;
+    return { type, text: text.trim() };
+  });
   let previousQuestions = [];
   try { previousQuestions = editing?.questions ? JSON.parse(editing.questions) : []; } catch { previousQuestions = []; }
   const questions = questionsText.split(/\n\s*\n/).map((block, index) => {
