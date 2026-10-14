@@ -380,12 +380,22 @@ async function installLeaderboard() {
   const podium = content.querySelector('.mt-10.grid');
   const oldList = content.querySelector('ol');
   if (!podium || !oldList) return;
-  podium.classList.add('backend-podium');
+  podium.classList.add('rating-podium');
+  const podiumSlots = [...podium.children];
   const paintRanking = (ranking) => {
-    podium.innerHTML = ranking.slice(0, 3).map((person, index) => `<article class="backend-podium-card is-demo"><span>${['🥇', '🥈', '🥉'][index]}</span><b>${esc(person.name)}</b><strong>${person.points} баллов</strong><small class="backend-demo-label">Демо-лидер</small></article>`).join('');
+    // Preserve the original podium: second on the left, first in the centre, third on the right.
+    [1, 0, 2].forEach((rankIndex, slotIndex) => {
+      const person = ranking[rankIndex];
+      const slot = podiumSlots[slotIndex];
+      if (!person || !slot) return;
+      slot.dataset.place = String(rankIndex + 1);
+      slot.querySelector('.rounded-full').textContent = person.name.slice(0, 1).toLocaleUpperCase('ru');
+      slot.querySelector('p.font-bold').textContent = person.name;
+      slot.querySelector('p.text-sm').textContent = `${person.points} баллов`;
+    });
     oldList.innerHTML = ranking.slice(3).map((person, index) => `<li class="backend-rank-row${person.is_current ? ' is-current' : ''}" data-username="${esc(person.username)}"><span>${index + 4}</span><b>${esc(person.name || person.username)}${person.is_current ? ' <small class="backend-rating-you">Вы</small>' : ''}</b><span>Пройдено: ${person.completed_count}</span><strong>${person.points}</strong></li>`).join('');
     oldList.setAttribute('aria-label', 'Реальные участники рейтинга');
-    status(content, 'Первые три места — демонстрационные лидеры. Ниже — участники с настоящими баллами за выбранный период.');
+    content.querySelector(':scope > .backend-status')?.remove();
   };
   let requestId = 0;
   let selectedPeriod = 'week';
@@ -403,7 +413,7 @@ async function installLeaderboard() {
     } catch {
       if (current === requestId) {
         paintRanking(buildLeaderboard([], null, period));
-        status(content, 'Лидеры — демонстрационные. Не удалось загрузить результаты участников. Нажмите «Обновить рейтинг».', true);
+        status(content, 'Не удалось загрузить рейтинг. Попробуйте ещё раз.', true);
       }
     } finally {
       if (current === requestId) refresh.disabled = false;
