@@ -85,6 +85,7 @@ function renderArticle(place, atlas, esc) {
   document.title = `${place.name} — Спадчына`;
   const hero = article.firstElementChild;
   const image = hero.querySelector('img'); image.src = place.image || 'assets/ae0141b95a.jpg'; image.alt = place.name;
+  image.hidden = false;
   const heading = hero.querySelector('h1'); heading.textContent = place.name;
   heading.previousElementSibling.textContent = [categoryLabel(atlas, place), place.era].filter(Boolean).join(' · ');
   heading.nextElementSibling.textContent = place.region;
