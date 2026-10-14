@@ -1792,7 +1792,7 @@ em { font-style: normal; }
 @media (max-width: 420px) {
   article dl.grid > div.bg-card.p-5 { min-width: 0; padding: 12px; }
   article dl.grid dt { font-size: 10px; letter-spacing: .06em; overflow-wrap: anywhere; }
-  article dl.grid dd { font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
+  article dl.grid dd { font-family: Onest, sans-serif; font-size: 15px; font-weight: 700; line-height: 1.4; overflow-wrap: break-word; }
 }
 .admin-page { background: var(--background); color: var(--foreground); font-family: Onest, sans-serif; }
 .admin-shell { max-width: 1200px; min-height: 70vh; margin: auto; padding: 50px 24px 90px; }
