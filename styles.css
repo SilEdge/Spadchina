@@ -1720,6 +1720,8 @@ em { font-style: normal; }
 .yandex-atlas-map { display: block; width: 100%; height: clamp(380px, 62vw, 620px); border: 0; background: var(--muted); }
 .backend-rank-row { animation: leaderboard-arrive .45s ease both; }
 .backend-rank-row.is-current { background: var(--muted); box-shadow: inset 3px 0 var(--primary); }
+.rating-podium > div { min-width: 0; }
+.rating-podium p { overflow-wrap: anywhere; }
 .backend-rating-you { color: var(--primary); font: 600 12px Onest, sans-serif; }
 .backend-rating-you { display: inline-block; margin-left: 6px; }
 .backend-rating-refresh { margin-top: 12px; }

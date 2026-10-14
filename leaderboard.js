@@ -1,4 +1,4 @@
-// Demo leaders occupy the podium while registered participants compete below it.
+// Sample participants and registered users share the same score-based ranking.
 export function buildLeaderboard(entries = [], currentUser = null, period = 'week') {
   const participants = new Map();
   for (const entry of entries) {
@@ -12,15 +12,13 @@ export function buildLeaderboard(entries = [], currentUser = null, period = 'wee
       completed_count: 0, correct_count: 0, is_demo: false, is_current: true,
     });
   }
-  const real = [...participants.values()].sort((a, b) =>
+  const multiplier = period === 'all' ? 3 : period === 'month' ? 2 : 1;
+  const demo = [
+    { username: 'demo-alesya', name: 'Алеся К.', points: 1040 * multiplier, completed_count: 18 * multiplier },
+    { username: 'demo-mikola', name: 'Микола Д.', points: 930 * multiplier, completed_count: 16 * multiplier },
+    { username: 'demo-darya', name: 'Дарья С.', points: 870 * multiplier, completed_count: 15 * multiplier },
+  ].map((entry) => ({ ...entry, correct_count: 0, is_demo: true, is_current: false }));
+  return [...demo, ...participants.values()].sort((a, b) =>
     b.points - a.points || b.correct_count - a.correct_count ||
     Number(b.is_current) - Number(a.is_current) || a.username.localeCompare(b.username, 'ru'));
-  const multiplier = period === 'all' ? 3 : period === 'month' ? 2 : 1;
-  const offset = Math.max(0, (real[0]?.points || 0) + 100 - 870 * multiplier);
-  const demo = [
-    { username: 'demo-alesya', name: 'Алеся К.', points: 1040 * multiplier + offset },
-    { username: 'demo-mikola', name: 'Микола Д.', points: 930 * multiplier + offset },
-    { username: 'demo-darya', name: 'Дарья С.', points: 870 * multiplier + offset },
-  ].map((entry) => ({ ...entry, is_demo: true, is_current: false }));
-  return [...demo, ...real];
 }

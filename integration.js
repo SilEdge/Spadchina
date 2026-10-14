@@ -389,12 +389,14 @@ async function installLeaderboard() {
       const slot = podiumSlots[slotIndex];
       if (!person || !slot) return;
       slot.dataset.place = String(rankIndex + 1);
-      slot.querySelector('.rounded-full').textContent = person.name.slice(0, 1).toLocaleUpperCase('ru');
-      slot.querySelector('p.font-bold').textContent = person.name;
+      slot.dataset.username = person.username;
+      const name = person.name || person.username;
+      slot.querySelector('.rounded-full').textContent = Array.from(name)[0].toLocaleUpperCase('ru');
+      slot.querySelector('p.font-bold').innerHTML = `${esc(name)}${person.is_current ? ' <small class="backend-rating-you">Вы</small>' : ''}`;
       slot.querySelector('p.text-sm').textContent = `${person.points} баллов`;
     });
     oldList.innerHTML = ranking.slice(3).map((person, index) => `<li class="backend-rank-row${person.is_current ? ' is-current' : ''}" data-username="${esc(person.username)}"><span>${index + 4}</span><b>${esc(person.name || person.username)}${person.is_current ? ' <small class="backend-rating-you">Вы</small>' : ''}</b><span>Пройдено: ${person.completed_count}</span><strong>${person.points}</strong></li>`).join('');
-    oldList.setAttribute('aria-label', 'Реальные участники рейтинга');
+    oldList.setAttribute('aria-label', 'Участники рейтинга');
     content.querySelector(':scope > .backend-status')?.remove();
   };
   let requestId = 0;
