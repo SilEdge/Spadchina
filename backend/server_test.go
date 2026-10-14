@@ -136,10 +136,19 @@ func TestServerWorkflow(t *testing.T) {
 	if len(people) != 1 || people[0].Username != second.User.Username || people[0].Email != "" {
 		t.Fatalf("people endpoint should return only other users' public fields: %+v", people)
 	}
-	var emptyRanking []LeaderboardEntry
-	requestJSON(t, client, http.MethodGet, server.URL+"/api/leaderboard?period=all", "", nil, http.StatusOK, &emptyRanking)
-	if len(emptyRanking) != 0 {
-		t.Fatalf("users without completed tasks should not appear in leaderboard: %+v", emptyRanking)
+	var initialRanking []LeaderboardEntry
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/leaderboard?period=all", "", nil, http.StatusOK, &initialRanking)
+	newPlayers := 0
+	for _, entry := range initialRanking {
+		if entry.Username == first.User.Username || entry.Username == second.User.Username {
+			if entry.Points != 0 {
+				t.Fatalf("new player has unearned points: %+v", entry)
+			}
+			newPlayers++
+		}
+	}
+	if newPlayers != 2 {
+		t.Fatalf("new players should appear with zero points: %+v", initialRanking)
 	}
 	var updatedProfile User
 	requestJSON(t, client, http.MethodPatch, server.URL+"/api/me", first.Token, map[string]string{"name": "Alpha Updated"}, http.StatusOK, &updatedProfile)

@@ -1,5 +1,6 @@
 import './data.js';
 import './app.js';
+import { buildLeaderboard } from './leaderboard.js';
 
 const API_ORIGIN = window.location.hostname.endsWith('.vercel.app') ? '' : String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
 const API_ROOT = `${API_ORIGIN}/api`;
@@ -380,37 +381,35 @@ async function installLeaderboard() {
   const oldList = content.querySelector('ol');
   if (!podium || !oldList) return;
   podium.classList.add('backend-podium');
-  const demoRanking = (period) => {
-    const multiplier = period === 'all' ? 3 : period === 'month' ? 2 : 1;
-    return [
-      { name: 'Алеся К.', points: 1040 * multiplier, completed_count: 18 * multiplier },
-      { name: 'Микола Д.', points: 930 * multiplier, completed_count: 16 * multiplier },
-      { name: 'Дарья С.', points: 870 * multiplier, completed_count: 15 * multiplier },
-      { name: 'Ян Б.', points: 790 * multiplier, completed_count: 13 * multiplier },
-      { name: 'Вера М.', points: 720 * multiplier, completed_count: 12 * multiplier },
-      { name: 'Павел Л.', points: 650 * multiplier, completed_count: 11 * multiplier },
-      { name: 'Надежда Р.', points: 590 * multiplier, completed_count: 10 * multiplier },
-      { name: 'Тимур В.', points: 510 * multiplier, completed_count: 9 * multiplier },
-    ];
-  };
-  const paintRanking = (ranking, demo = false) => {
-    podium.innerHTML = ranking.slice(0, 3).map((person, index) => `<article class="backend-podium-card${demo ? ' is-demo' : ''}"><span>${['🥇', '🥈', '🥉'][index]}</span><b>${esc(person.name || person.username)}</b><strong>${person.points} баллов</strong></article>`).join('');
-    oldList.innerHTML = ranking.slice(3).map((person, index) => `<li class="backend-rank-row${demo ? ' is-demo' : ''}"><span>${index + 4}</span><b>${esc(person.name || person.username)}</b><span>${person.completed_count} мест</span><strong>${person.points}</strong></li>`).join('');
-    oldList.setAttribute('aria-label', demo ? 'Демонстрационный рейтинг, имена вымышлены' : 'Рейтинг пользователей из базы данных');
-    status(content, demo ? 'Демонстрационный рейтинг · имена и результаты вымышлены. Реальные участники появятся после сохранения результатов.' : '');
+  const paintRanking = (ranking) => {
+    podium.innerHTML = ranking.slice(0, 3).map((person, index) => `<article class="backend-podium-card is-demo"><span>${['🥇', '🥈', '🥉'][index]}</span><b>${esc(person.name)}</b><strong>${person.points} баллов</strong><small class="backend-demo-label">Демо-лидер</small></article>`).join('');
+    oldList.innerHTML = ranking.slice(3).map((person, index) => `<li class="backend-rank-row${person.is_current ? ' is-current' : ''}" data-username="${esc(person.username)}"><span>${index + 4}</span><b>${esc(person.name || person.username)}${person.is_current ? ' <small class="backend-rating-you">Вы</small>' : ''}</b><span>Пройдено: ${person.completed_count}</span><strong>${person.points}</strong></li>`).join('');
+    oldList.setAttribute('aria-label', 'Реальные участники рейтинга');
+    status(content, 'Первые три места — демонстрационные лидеры. Ниже — участники с настоящими баллами за выбранный период.');
   };
   let requestId = 0;
+  let selectedPeriod = 'week';
+  const refresh = document.createElement('button');
+  refresh.type = 'button'; refresh.className = 'backend-outline-button backend-rating-refresh';
+  refresh.textContent = 'Обновить рейтинг';
+  filterRow.after(refresh);
   const render = async (period = 'week') => {
     const current = ++requestId;
+    selectedPeriod = period; refresh.disabled = true;
     try {
       const ranking = await api(`/leaderboard?period=${period}`);
       if (current !== requestId) return;
-      if (ranking.length) paintRanking(ranking);
-      else paintRanking(demoRanking(period), true);
+      paintRanking(buildLeaderboard(ranking, cache.user, period));
     } catch {
-      if (current === requestId) paintRanking(demoRanking(period), true);
+      if (current === requestId) {
+        paintRanking(buildLeaderboard([], null, period));
+        status(content, 'Лидеры — демонстрационные. Не удалось загрузить результаты участников. Нажмите «Обновить рейтинг».', true);
+      }
+    } finally {
+      if (current === requestId) refresh.disabled = false;
     }
   };
+  refresh.onclick = () => render(selectedPeriod);
   filterRow.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => {
     const period = labels[button.textContent.trim()]; if (!period) return;
     filterRow.querySelectorAll('button').forEach((item) => { item.classList.remove('border-foreground', 'bg-foreground', 'text-background'); item.classList.add('border-border', 'bg-background'); });
@@ -470,7 +469,7 @@ async function installProfile() {
     if (metrics[1]?.querySelector('p.font-display')) metrics[1].querySelector('p.font-display').textContent = String(rewards.length);
     if (metrics[2]?.querySelector('p.font-display')) {
       const ranking = await api('/leaderboard?period=all');
-      const place = ranking.findIndex((item) => item.username === user.username);
+      const place = buildLeaderboard(ranking, user, 'all').findIndex((item) => !item.is_demo && item.username === user.username);
       metrics[2].querySelector('p.font-display').textContent = place >= 0 ? `#${place + 1}` : '—';
     }
     const levelLabel = [...hero.querySelectorAll('span')].find((item) => item.textContent.trim().startsWith('До уровня'));

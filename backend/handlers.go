@@ -357,7 +357,6 @@ func getLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
 	FROM users u LEFT JOIN quizzes q ON q.user_id = u.id
 	LEFT JOIN duels_won d ON d.user_id = u.id
 	LEFT JOIN team_rewards t ON t.user_id = u.id
-	WHERE u.role = 'user' AND (q.user_id IS NOT NULL OR d.user_id IS NOT NULL OR t.user_id IS NOT NULL)
 	ORDER BY earned DESC, correct_count DESC, u.username ASC LIMIT 50`
 	rows, err := db.Query(query, args...)
 	if err != nil {
