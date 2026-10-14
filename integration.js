@@ -2,6 +2,7 @@ import './data.js';
 import './app.js';
 import { installCatalog, installHomeAtlas, installPlaceQuiz } from './public-atlas.js';
 import { buildLeaderboard } from './leaderboard.js';
+import { requestJSON } from './request-json.js';
 
 const API_ORIGIN = window.location.hostname.endsWith('.vercel.app') ? '' : String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
 const API_ROOT = `${API_ORIGIN}/api`;
@@ -14,14 +15,7 @@ async function api(path, options = {}) {
   headers.set('Accept', 'application/json');
   if (options.body) headers.set('Content-Type', 'application/json');
   if (token()) headers.set('Authorization', `Bearer ${token()}`);
-  const response = await fetch(`${API_ROOT}${path}`, { ...options, headers });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(payload.error || `Ошибка сервера (${response.status})`);
-    error.status = response.status;
-    throw error;
-  }
-  return payload;
+  return requestJSON(`${API_ROOT}${path}`, { ...options, headers });
 }
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);

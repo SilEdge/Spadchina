@@ -1,3 +1,5 @@
+import { requestJSON } from './request-json.js';
+
 const root = document.getElementById('admin-root');
 const token = localStorage.getItem('cultcode_token') || sessionStorage.getItem('cultcode_token');
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -10,13 +12,10 @@ let loadVersion = 0;
 const userLabel = (user) => user.name?.trim() || user.username?.trim() || `Пользователь #${user.id}`;
 
 async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, {
+  return requestJSON(`/api${path}`, {
     ...options,
     headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${token}` },
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Ошибка ${response.status}`);
-  return data;
 }
 
 function flash(message, isError = false) {

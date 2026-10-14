@@ -7,6 +7,7 @@ export async function installCatalog({ getAtlas, api, esc, status, token }) {
   const input = main?.querySelector('input[placeholder="Найти место…"]');
   const grid = main?.querySelector('a[href^="place-"]')?.parentElement;
   if (!input || !grid) return;
+  grid.classList.add('catalog-place-grid');
   let atlas;
   try { atlas = await getAtlas(); }
   catch { status(main, 'Не удалось обновить каталог. Перезагрузите страницу.', true); return; }
@@ -50,7 +51,13 @@ export async function installHomeAtlas({ getAtlas, esc }) {
   const list = main.querySelector('#atlas-map')?.closest('section')?.querySelector('ol');
   if (list) {
     list.classList.add('atlas-place-list');
-    list.innerHTML = atlas.places.map((place, index) => `<li><a class="group grid h-full grid-cols-[2rem_1fr_auto] items-center gap-4 border border-border bg-background px-6 py-6 transition-colors hover:bg-primary hover:text-primary-foreground" href="${placeURL(place)}"><span class="font-mono text-[11px] opacity-50">${String(index + 1).padStart(2, '0')}</span><span><span class="block font-display text-lg font-bold">${esc(place.name)}</span><span class="font-mono text-[11px] opacity-60">${esc(categoryLabel(atlas, place))} · ${esc(place.region || '')}</span></span><span>+${place.pts || 0}</span></a></li>`).join('');
+    const featuredIDs = ['mir', 'nesvizh', 'pushcha', 'brest', 'skorina', 'krasny'];
+    const featured = featuredIDs.map((id) => atlas.places.find((place) => place.id === id)).filter(Boolean);
+    for (const place of atlas.places) {
+      if (featured.length >= 6) break;
+      if (!featured.includes(place)) featured.push(place);
+    }
+    list.innerHTML = featured.map((place, index) => `<li><a class="group grid h-full grid-cols-[2rem_1fr_auto] items-center gap-4 border border-border bg-background px-6 py-6 transition-colors hover:bg-primary hover:text-primary-foreground" href="${placeURL(place)}"><span class="font-mono text-[11px] opacity-50">${String(index + 1).padStart(2, '0')}</span><span><span class="block font-display text-lg font-bold">${esc(place.name)}</span><span class="font-mono text-[11px] opacity-60">${esc(categoryLabel(atlas, place))} · ${esc(place.region || '')}</span></span><span>+${place.pts || 0}</span></a></li>`).join('');
   }
   const stats = [...main.querySelectorAll('dl > div')];
   stats[0]?.querySelector('dt')?.replaceChildren(String(atlas.places.length));
