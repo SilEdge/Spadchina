@@ -37,6 +37,9 @@ func respondJSON(w http.ResponseWriter, data interface{}, status int) {
 }
 
 func respondError(w http.ResponseWriter, message string, status int) {
+	if translated, ok := russianErrors[message]; ok {
+		message = translated
+	}
 	respondJSON(w, map[string]string{"error": message}, status)
 }
 

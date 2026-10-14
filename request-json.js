@@ -5,7 +5,8 @@ export async function requestJSON(url, options = {}) {
     let response;
     try { response = await fetch(url, options); }
     catch (error) {
-      if (attempt + 1 === attempts || error.name === 'AbortError') throw error;
+      if (error.name === 'AbortError') throw error;
+      if (attempt + 1 === attempts) throw new Error('Не удалось связаться с сервером. Проверьте подключение и повторите попытку.');
     }
     const transient = response && [502, 503, 504].includes(response.status);
     if ((!response || transient) && attempt + 1 < attempts) {

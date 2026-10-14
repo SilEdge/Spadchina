@@ -127,8 +127,8 @@ func TestPublishingAndVerifiedScoring(t *testing.T) {
 	if len(ideas) != 1 {
 		t.Fatal("idea inbox is empty")
 	}
-	requestJSON(t, client, "POST", server.URL+"/api/admin/password", admin.Token, map[string]string{"current_password": "wrong", "password": "new-long-password-456"}, 403, nil)
-	requestJSON(t, client, "POST", server.URL+"/api/admin/password", admin.Token, map[string]string{"current_password": "test-admin-password-123", "password": "new-long-password-456"}, 200, nil)
+	requestJSON(t, client, "POST", server.URL+"/api/admin/password", admin.Token, map[string]string{"current_password": "wrong", "password": "111111"}, 403, nil)
+	requestJSON(t, client, "POST", server.URL+"/api/admin/password", admin.Token, map[string]string{"current_password": "test-admin-password-123", "password": "111111"}, 200, nil)
 	requestJSON(t, client, "POST", server.URL+"/api/login", "", LoginRequest{Email: "admin@example.test", Password: "test-admin-password-123"}, http.StatusUnauthorized, nil)
-	requestJSON(t, client, "POST", server.URL+"/api/login", "", LoginRequest{Email: "admin@example.test", Password: "new-long-password-456"}, 200, nil)
+	requestJSON(t, client, "POST", server.URL+"/api/login", "", LoginRequest{Email: "admin@example.test", Password: "111111"}, 200, nil)
 }

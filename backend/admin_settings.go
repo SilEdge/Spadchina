@@ -43,8 +43,8 @@ func adminPasswordHandler(w http.ResponseWriter, r *http.Request) {
 		Current  string `json:"current_password"`
 		Password string `json:"password"`
 	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input) != nil || len(input.Password) < 12 || len(input.Password) > 72 {
-		respondError(w, "Новый пароль должен содержать от 12 до 72 символов", 400)
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input) != nil || len(input.Password) < 6 || len(input.Password) > 72 {
+		respondError(w, "Новый пароль должен содержать от 6 до 72 символов", 400)
 		return
 	}
 	id := userFromContext(r.Context()).UserID

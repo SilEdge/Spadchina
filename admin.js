@@ -156,7 +156,7 @@ async function load() {
 function renderSection() {
   const editor = root.querySelector('.admin-editor-wrap');
   editor.innerHTML = section === 'questions' ? questionForm() : section === 'rewards' ? rewardForm() : section === 'articles' ? articleForm() : '';
-  if (section === 'settings') editor.innerHTML = '<form class="admin-editor" id="password-editor"><h2>Сменить пароль</h2><label>Текущий пароль<input name="current" type="password" autocomplete="current-password" required></label><label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required></label><button type="submit">Сохранить пароль</button></form>';
+  if (section === 'settings') editor.innerHTML = '<form class="admin-editor" id="password-editor"><h2>Сменить пароль</h2><label>Текущий пароль<input name="current" type="password" autocomplete="current-password" required></label><label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="6" maxlength="72" required></label><button type="submit">Сохранить пароль</button></form>';
   editor.querySelector('#password-editor')?.addEventListener('submit', async (event) => {
     event.preventDefault(); const form = event.currentTarget; const button = form.querySelector('button'); button.disabled = true;
     try { await api('/admin/password', { method: 'POST', body: JSON.stringify({ current_password: form.elements.current.value, password: form.elements.password.value }) }); form.reset(); flash('Пароль изменён'); }
