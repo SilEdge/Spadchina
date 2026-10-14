@@ -1,5 +1,6 @@
 import './data.js';
 import './app.js';
+import { installCatalog, installHomeAtlas, installPlaceQuiz } from './public-atlas.js';
 import { buildLeaderboard } from './leaderboard.js';
 
 const API_ORIGIN = window.location.hostname.endsWith('.vercel.app') ? '' : String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
@@ -8,11 +9,6 @@ const TOKEN_KEY = 'cultcode_token';
 const PENDING_KEY = 'spadchyna_pending_quiz_results';
 const token = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || '';
 const cache = { atlas: null, user: null };
-const FALLBACK_CATEGORIES = [
-  ['История', 'history'], ['Культура', 'culture'], ['Природа', 'nature'],
-  ['Традиции', 'traditions'], ['Архитектура', 'architecture'], ['Память', 'memory'],
-].map(([name, id]) => ({ name, id }));
-
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set('Accept', 'application/json');
@@ -120,8 +116,9 @@ async function syncPendingResults() {
   try { pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch { pending = []; }
   const failed = [];
   for (const result of pending) {
+    if (!result.answers || !result.version) continue;
     if (result.account && result.account !== cache.user?.username) { failed.push(result); continue; }
-    try { await api('/atlas/results', { method: 'POST', body: JSON.stringify({ slug: result.slug, score: result.score, max_score: result.max_score }) }); }
+    try { await api('/atlas/results', { method: 'POST', body: JSON.stringify({ slug: result.slug, version: result.version, answers: result.answers }) }); }
     catch { failed.push(result); }
   }
   if (failed.length) localStorage.setItem(PENDING_KEY, JSON.stringify(failed));
@@ -133,7 +130,7 @@ function queuePendingResult(result) {
   try {
     const pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
     const previous = pending.find((item) => item.slug === entry.slug && item.account === entry.account);
-    if (previous && previous.score > entry.score) entry.score = previous.score;
+    if (previous && previous.score > entry.score) return;
     localStorage.setItem(PENDING_KEY, JSON.stringify([...pending.filter((item) => item.slug !== entry.slug || item.account !== entry.account), entry]));
   } catch {
     localStorage.setItem(PENDING_KEY, JSON.stringify([entry]));
@@ -233,141 +230,6 @@ async function installAuth() {
       }
     }
   }
-}
-
-async function installCatalog() {
-  const main = document.querySelector('main');
-  if (!main?.querySelector('input[placeholder="Найти место…"]')) return;
-  const input = main.querySelector('input[placeholder="Найти место…"]');
-  const cards = [...main.querySelectorAll('a[href^="place-"]')];
-  const filters = [...main.querySelectorAll('button')].filter((button) => button.textContent.trim());
-  let category = '';
-  let atlas;
-  try { atlas = await getAtlas(); }
-  catch (error) { status(main, `Каталог загружен из сохранённой версии: ${error.message}`, true); }
-  const placeIndex = new Map((atlas?.places || window.SP?.n || []).map((place) => [place.id, place]));
-  const categories = atlas?.categories || FALLBACK_CATEGORIES;
-  const progress = new Set();
-  if (token()) {
-    try { (await api('/atlas/progress')).forEach((item) => progress.add(item.slug)); } catch { /* Keep browsing available during a temporary API outage. */ }
-  }
-  cards.forEach((card) => {
-    const slug = card.getAttribute('href').replace(/^place-/, '').replace(/\.html$/, '');
-    const place = placeIndex.get(slug);
-    if (place) card.dataset.category = place.cat;
-    if (progress.has(slug) && !card.querySelector('.backend-completed')) {
-      const badge = document.createElement('span'); badge.className = 'backend-completed'; badge.textContent = 'Изучено'; card.append(badge);
-    }
-  });
-  const apply = () => {
-    const query = input.value.trim().toLocaleLowerCase('ru');
-    let visible = 0;
-    cards.forEach((card) => {
-      const matches = (!category || card.dataset.category === category) && (!query || card.textContent.toLocaleLowerCase('ru').includes(query));
-      card.hidden = !matches; if (matches) visible += 1;
-    });
-    if (!main.querySelector('.backend-result-count')) {
-      const count = document.createElement('p'); count.className = 'backend-result-count'; count.setAttribute('aria-live', 'polite'); input.closest('label')?.insertAdjacentElement('afterend', count);
-    }
-    main.querySelector('.backend-result-count').textContent = `Найдено мест: ${visible}`;
-  };
-  input.addEventListener('input', apply);
-  filters.forEach((button) => button.addEventListener('click', () => {
-    const text = button.textContent.trim().split(/\s+/)[0];
-    category = text === 'Все' ? '' : categories.find((item) => item.name.toLocaleLowerCase('ru') === text.toLocaleLowerCase('ru'))?.id || '';
-    filters.forEach((item) => { item.classList.remove('border-primary', 'bg-primary', 'text-primary-foreground'); item.classList.add('border-border'); });
-    button.classList.add('border-primary', 'bg-primary', 'text-primary-foreground');
-    apply();
-  }));
-  apply();
-}
-
-async function installHomeAtlas() {
-  const main = document.querySelector('main');
-  if (!main?.querySelector('#atlas-map')) return;
-  main.querySelector('#atlas-map')?.closest('section')?.querySelector('ol')?.classList.add('atlas-place-list');
-  let atlas;
-  try {
-    atlas = await getAtlas();
-  } catch {
-    atlas = { categories: FALLBACK_CATEGORIES, places: window.SP?.n || [], quizzes: window.SP?.q || {} };
-  }
-  if (atlas.places.length) {
-    const categoryCounts = new Map(atlas.categories.map((category) => [category.id, atlas.places.filter((place) => place.cat === category.id).length]));
-    const taskCount = Object.values(atlas.quizzes || {}).reduce((sum, questions) => sum + questions.length, 0);
-    const stats = [...main.querySelectorAll('dl > div')];
-    if (stats[0]) stats[0].querySelector('dt')?.replaceChildren(String(atlas.places.length));
-    if (stats[1]) stats[1].querySelector('dt')?.replaceChildren(String(taskCount));
-    const categorySection = [...main.querySelectorAll('section')].find((section) => section.textContent.includes('Шесть нитей'));
-    if (categorySection) {
-      const categoryButtons = [...categorySection.querySelectorAll('button')];
-      categoryButtons.forEach((button, index) => {
-        button.classList.add('atlas-category-filter');
-        const category = atlas.categories[index]; if (!category) return;
-        const countLabel = [...button.querySelectorAll('span')].find((span) => /мест/i.test(span.textContent));
-        if (countLabel) countLabel.textContent = `${categoryCounts.get(category.id) || 0} мест`;
-      });
-      const cards = [...main.querySelectorAll('a[href^="place-"]')];
-      let active = '';
-      categoryButtons.forEach((button, index) => button.addEventListener('click', () => {
-        const selected = atlas.categories[index];
-        active = active === selected?.id ? '' : selected?.id;
-        categoryButtons.forEach((item) => item.setAttribute('aria-pressed', String(item === button && Boolean(active))));
-        cards.forEach((card) => {
-          const slug = card.getAttribute('href').replace(/^place-/, '').replace(/\.html$/, '');
-          const place = atlas.places.find((item) => item.id === slug);
-          card.hidden = Boolean(active && place && place.cat !== active);
-        });
-      }));
-    }
-  }
-}
-
-async function installPlaceQuiz() {
-  const slug = location.pathname.match(/place-([\w-]+)\.html$/)?.[1];
-  if (!slug) return;
-  const card = [...document.querySelectorAll('main div.shadow-xl')].find((item) => item.textContent.includes('Задание'));
-  if (!card) return;
-  let questions;
-  try { questions = (await getAtlas()).quizzes?.[slug]; }
-  catch {
-    // The archive ships with the same quiz bank, so a temporary API outage must not block the task.
-    questions = window.SP?.q?.[slug];
-  }
-  if (!questions?.length) questions = window.SP?.q?.[slug];
-  if (!questions?.length) { status(card, 'Для этого места пока нет заданий.', true); return; }
-  let index = 0; let score = 0;
-  const draw = (feedback = '') => {
-    if (index >= questions.length) {
-      card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Маршрут пройден</p><h2 class="mt-3 font-display text-2xl font-bold">Ваш результат: ${score} из ${questions.length}</h2><p class="mt-3" data-save-message>${token() ? 'Сохраняем результат в профиль…' : 'Войдите, чтобы сохранить результат и баллы.'}</p><button class="backend-primary-button" type="button">Пройти ещё раз</button>`;
-      card.querySelector('button').onclick = () => { index = 0; score = 0; draw(); };
-      const result = { slug, score, max_score: questions.length };
-      if (!token()) {
-        queuePendingResult(result);
-        return;
-      }
-      const message = card.querySelector('[data-save-message]');
-      api('/atlas/results', { method: 'POST', body: JSON.stringify(result) })
-        .then(() => { if (message.isConnected) message.textContent = 'Результат сохранён в базе данных. Баллы добавлены в профиль.'; })
-        .catch(() => {
-          queuePendingResult(result);
-          if (message.isConnected) message.textContent = 'Сервер временно недоступен. Результат сохранён на устройстве и будет отправлен при следующем входе.';
-        });
-      return;
-    }
-    const question = questions[index];
-    card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Задание · ${index + 1} из ${questions.length}</p><h2 class="mt-3 font-display text-xl font-bold leading-snug">${esc(question.q)}</h2><div class="backend-answer-list">${question.a.map((answer, choice) => `<button type="button" data-choice="${choice}">${esc(answer)}</button>`).join('')}</div><p class="backend-quiz-feedback" role="status">${feedback}</p>`;
-    card.querySelectorAll('[data-choice]').forEach((button) => button.addEventListener('click', () => {
-      const selected = Number(button.dataset.choice); const correct = selected === Number(question.ok);
-      if (correct) score += 1;
-      card.querySelectorAll('[data-choice]').forEach((item, choice) => { item.disabled = true; if (choice === Number(question.ok)) item.classList.add('backend-answer-correct'); else if (choice === selected) item.classList.add('backend-answer-wrong'); });
-      const feedbackNode = card.querySelector('.backend-quiz-feedback');
-      feedbackNode.textContent = `${correct ? 'Верно. ' : 'Неверно. '}${question.explanation || ''}`;
-      const next = document.createElement('button'); next.className = 'backend-primary-button'; next.type = 'button'; next.textContent = index + 1 === questions.length ? 'Завершить маршрут' : 'Следующий вопрос';
-      next.addEventListener('click', () => { index += 1; draw(); }); feedbackNode.after(next);
-    }));
-  };
-  draw();
 }
 
 async function installLeaderboard() {
@@ -557,7 +419,7 @@ async function installIdeas() {
     try {
       const result = await api('/suggestions', { method: 'POST', body: JSON.stringify(body) });
       form.elements.message.value = '';
-      status(form, result.delivery === 'telegram' ? 'Идея отправлена через Telegram и сохранена. Спасибо!' : 'Идея сохранена. Спасибо! Мы прочитаем её после подключения Telegram-бота.');
+      status(form, result.delivery === 'telegram' ? 'Идея отправлена через Telegram и сохранена. Спасибо!' : 'Идея отправлена команде проекта. Спасибо!');
     } catch (error) { status(form, `Не удалось отправить идею: ${error.message}`, true); }
     finally { button.disabled = false; }
   });
@@ -720,7 +582,7 @@ function runQuestionGame(questions, target, seconds, finish) {
       return;
     }
     const q = questions[index];
-    const multiple = Array.isArray(q.correct);
+    const multiple = Boolean(q.multiple);
     const selected = new Set();
     let remaining = seconds; let answered = false;
     target.innerHTML = `<div class="backend-game-panel"><div class="flex justify-between gap-3"><p>Вопрос ${index + 1} из ${questions.length}${multiple ? ' · выберите все правильные ответы' : ''}</p><p class="backend-timer" aria-live="off">${remaining} с</p></div><h3>${esc(q.question)}</h3><div class="backend-answer-list">${q.options.map((option, i) => `<button type="button" data-game-answer="${i}" aria-pressed="false">${esc(option)}</button>`).join('')}</div><div class="backend-game-controls"></div><p class="backend-quiz-feedback" role="status"></p></div>`;
@@ -730,15 +592,8 @@ function runQuestionGame(questions, target, seconds, finish) {
       if (answered) return;
       answered = true; clearInterval(interval);
       answers.push({ question_id: q.id, selected: choices, time_left: remaining });
-      const correct = Array.isArray(q.correct) ? q.correct.map(Number) : [Number(q.correct)];
-      const right = choices.length === correct.length && choices.every((choice) => correct.includes(choice));
-      panel.querySelectorAll('[data-game-answer]').forEach((button) => {
-        button.disabled = true;
-        const value = Number(button.dataset.gameAnswer);
-        if (correct.includes(value)) button.classList.add('backend-answer-correct');
-        else if (choices.includes(value)) button.classList.add('backend-answer-wrong');
-      });
-      panel.querySelector('.backend-quiz-feedback').textContent = `${choices.length ? right ? 'Верно. ' : 'Неверно. ' : 'Время вышло. '}${q.explanation || ''}`;
+      panel.querySelectorAll('[data-game-answer]').forEach((button) => {button.disabled = true; if (choices.includes(Number(button.dataset.gameAnswer))) button.classList.add('backend-answer-selected');});
+      panel.querySelector('.backend-quiz-feedback').textContent = choices.length ? 'Ответ принят. Результат появится после завершения.' : 'Время вышло.';
       controls.innerHTML = `<button class="backend-primary-button" type="button">${index + 1 === questions.length ? 'Завершить' : 'Следующий вопрос'}</button>`;
       controls.querySelector('button').onclick = () => { index += 1; draw(); };
     };
@@ -849,7 +704,7 @@ function showBattlePlayers(battle, target) {
 
 async function initialize() {
   await installAuth();
-  await Promise.allSettled([installHomeAtlas(), installCatalog(), installPlaceQuiz(), installLeaderboard(), installProfile(), installIdeas(), installShop(), installChat(), installDuelPage(), installTeamBattles()]);
+  await Promise.allSettled([installHomeAtlas({ getAtlas, esc }), installCatalog({ getAtlas, api, esc, status, token }), installPlaceQuiz({ getAtlas, api, esc, token, queuePendingResult }), installLeaderboard(), installProfile(), installIdeas(), installShop(), installChat(), installDuelPage(), installTeamBattles()]);
 }
 
 initialize();

@@ -8,69 +8,129 @@ import (
 )
 
 func createArticleHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w, r)
-	var req ArticleInput
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, "invalid request", http.StatusBadRequest)
+	var input ArticleInput
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 524288)).Decode(&input) != nil || !validArticle(&input) {
+		respondError(w, "Проверьте текст, вопросы и настройки статьи", 400)
 		return
 	}
-
-	res, err := db.Exec(
-		"INSERT INTO articles (title, category, category_label, difficulty, difficulty_label, read_time, image, content, questions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		req.Title, req.Category, req.CategoryLabel, req.Difficulty, req.DifficultyLabel, req.ReadTime, req.Image, req.Content, req.Questions,
-	)
+	tx, err := db.BeginTx(r.Context(), nil)
 	if err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+		respondError(w, "db error", 500)
 		return
 	}
-
-	id, _ := res.LastInsertId()
-	respondJSON(w, map[string]int64{"id": id}, http.StatusCreated)
+	defer tx.Rollback()
+	result, err := tx.Exec("INSERT INTO articles(title,category,category_label,difficulty,difficulty_label,read_time,image,content,questions) VALUES(?,?,?,?,?,?,?,?,?)",
+		input.Title, input.Category, input.CategoryLabel, input.Difficulty, input.DifficultyLabel, input.ReadTime, input.Image, input.Content, input.Questions)
+	if err != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	id, _ := result.LastInsertId()
+	if savePublication(tx, id, input) != nil {
+		respondError(w, "Проверьте код статьи и координаты", 409)
+		return
+	}
+	if tx.Commit() != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	respondJSON(w, map[string]int64{"id": id}, 201)
 }
 
 func updateArticleHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w, r)
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/articles/")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/admin/articles/"))
+	if err != nil || id <= 0 {
+		respondError(w, "invalid id", 400)
+		return
+	}
+	var input ArticleInput
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 524288)).Decode(&input) != nil || !validArticle(&input) {
+		respondError(w, "Проверьте текст, вопросы и настройки статьи", 400)
+		return
+	}
+	tx, err := db.BeginTx(r.Context(), nil)
 	if err != nil {
-		respondError(w, "invalid id", http.StatusBadRequest)
+		respondError(w, "db error", 500)
 		return
 	}
-
-	var req ArticleInput
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, "invalid request", http.StatusBadRequest)
+	defer tx.Rollback()
+	var oldSlug string
+	_ = tx.QueryRow("SELECT slug FROM atlas_places WHERE article_id=?", id).Scan(&oldSlug)
+	if oldSlug != "" && input.Slug != "" && input.Slug != oldSlug {
+		respondError(w, "Код опубликованной статьи нельзя менять", 400)
 		return
 	}
-
-	_, err = db.Exec(
-		"UPDATE articles SET title = ?, category = ?, category_label = ?, difficulty = ?, difficulty_label = ?, read_time = ?, image = ?, content = ?, questions = ? WHERE id = ?",
-		req.Title, req.Category, req.CategoryLabel, req.Difficulty, req.DifficultyLabel, req.ReadTime, req.Image, req.Content, req.Questions, id,
-	)
+	if oldSlug != "" {
+		input.Slug = oldSlug
+	}
+	result, err := tx.Exec("UPDATE articles SET title=?,category=?,category_label=?,difficulty=?,difficulty_label=?,read_time=?,image=?,content=?,questions=? WHERE id=?",
+		input.Title, input.Category, input.CategoryLabel, input.Difficulty, input.DifficultyLabel, input.ReadTime, input.Image, input.Content, input.Questions, id)
 	if err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+		respondError(w, "db error", 500)
 		return
 	}
-
-	respondJSON(w, map[string]string{"status": "updated"}, http.StatusOK)
+	count, _ := result.RowsAffected()
+	if count == 0 {
+		respondError(w, "article not found", 404)
+		return
+	}
+	if savePublication(tx, int64(id), input) != nil {
+		respondError(w, "Проверьте код статьи и координаты", 409)
+		return
+	}
+	if tx.Commit() != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	respondJSON(w, map[string]string{"status": "updated"}, 200)
 }
 
 func deleteArticleHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w, r)
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/articles/")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		respondError(w, "invalid id", http.StatusBadRequest)
+	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/admin/articles/"))
+	if err != nil || id <= 0 {
+		respondError(w, "invalid id", 400)
 		return
 	}
-
-	_, err = db.Exec("DELETE FROM articles WHERE id = ?", id)
+	tx, err := db.BeginTx(r.Context(), nil)
 	if err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+		respondError(w, "db error", 500)
 		return
 	}
-
-	respondJSON(w, map[string]string{"status": "deleted"}, http.StatusOK)
+	defer tx.Rollback()
+	// Keep earned results and their points intact when an article is archived.
+	if _, err = tx.Exec("UPDATE atlas_places SET published=-1 WHERE article_id=?", id); err != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	var count int
+	if tx.QueryRow("SELECT COUNT(*) FROM results WHERE article_id=?", id).Scan(&count) != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	var slug string
+	_ = tx.QueryRow("SELECT slug FROM atlas_places WHERE article_id=?", id).Scan(&slug)
+	builtIn := false
+	for _, place := range readAtlasData().Places {
+		if place.ID == slug {
+			builtIn = true
+			break
+		}
+	}
+	if count == 0 && !builtIn {
+		if _, err = tx.Exec("DELETE FROM atlas_places WHERE article_id=?", id); err != nil {
+			respondError(w, "db error", 500)
+			return
+		}
+		if _, err = tx.Exec("DELETE FROM articles WHERE id=?", id); err != nil {
+			respondError(w, "db error", 500)
+			return
+		}
+	}
+	if tx.Commit() != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	respondJSON(w, map[string]string{"status": "deleted"}, 200)
 }
 
 func listUsersHandler(w http.ResponseWriter, r *http.Request) {

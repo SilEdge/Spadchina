@@ -13,6 +13,9 @@ import (
 //go:embed atlas-data.json
 var atlasDataJSON []byte
 
+//go:embed atlas-content.json
+var atlasContentJSON []byte
+
 type atlasData struct {
 	Categories []struct {
 		ID    string `json:"id"`
@@ -74,6 +77,7 @@ func seedAtlas() {
 				Correct:       question.Correct,
 				Category:      place.Cat,
 				CategoryLabel: categoryLabels[place.Cat],
+				Explanation:   question.Explanation,
 			})
 		}
 		questionsJSON, _ := json.Marshal(questions)
@@ -101,12 +105,13 @@ func seedAtlas() {
 			_, _ = db.Exec(`UPDATE articles SET category=?, category_label=?, difficulty=?, difficulty_label=?, read_time=?, image=?, content=?, questions=? WHERE id=?`,
 				place.Cat, categoryLabels[place.Cat], "medium", "Средний", 5, place.Image, string(contentJSON), string(questionsJSON), articleID)
 		}
-		_, _ = db.Exec(`INSERT INTO atlas_places (slug, article_id, region, era, lead, points, x, y)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(slug) DO UPDATE SET article_id=excluded.article_id, region=excluded.region,
-				era=excluded.era, lead=excluded.lead, points=excluded.points, x=excluded.x, y=excluded.y`,
-			place.ID, articleID, place.Region, place.Era, place.Lead, place.Points, place.X, place.Y)
+		_, _ = db.Exec(`INSERT INTO atlas_places (slug, article_id, region, era, lead, points, x, y,latitude,longitude,map_label)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?,?,?,?)
+			ON CONFLICT(slug) DO NOTHING`,
+			place.ID, articleID, place.Region, place.Era, place.Lead, place.Points, place.X, place.Y, data.Coords[place.ID][0], data.Coords[place.ID][1], atlasMapLabel(place.ID))
 	}
+
+	upgradeAtlasContent()
 
 	rewards := []struct {
 		id, icon, name string
@@ -156,54 +161,82 @@ func atlasProgressHandler(w http.ResponseWriter, r *http.Request) {
 func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
 	if r.Method != http.MethodGet {
-		respondError(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, "method not allowed", 405)
 		return
 	}
-	data := readAtlasData()
-	for i := range data.Categories {
-		count := 0
-		for _, place := range data.Places {
-			if place.Cat == data.Categories[i].ID {
-				count++
-			}
-		}
-		data.Categories[i].Count = count
+	rows, err := db.Query(articleSelect + " WHERE ap.published=1 ORDER BY a.id")
+	if err != nil {
+		respondError(w, "db error", 500)
+		return
 	}
-	respondJSON(w, data, http.StatusOK)
+	defer rows.Close()
+	source := readAtlasData()
+	places := []map[string]interface{}{}
+	quizzes := map[string]interface{}{}
+	coords := map[string][]float64{}
+	counts := map[string]int{}
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			respondError(w, "db error", 500)
+			return
+		}
+		var blocks []struct {
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal([]byte(a.Content), &blocks)
+		lead := ""
+		if len(blocks) > 0 {
+			lead = blocks[0].Text
+		}
+		var questions []DuelQuestion
+		if json.Unmarshal([]byte(a.Questions), &questions) != nil {
+			respondError(w, "invalid article questions", 500)
+			return
+		}
+		public := []map[string]interface{}{}
+		for _, q := range questions {
+			public = append(public, map[string]interface{}{"id": q.ID, "q": q.Question, "a": q.Options, "multiple": len(correctIndices(q.Correct)) > 1})
+		}
+		quizzes[a.Slug] = public
+		counts[a.Category]++
+		places = append(places, map[string]interface{}{"id": a.Slug, "article_id": a.ID, "name": a.Title, "cat": a.Category, "region": a.Region, "era": a.Era,
+			"lead": lead, "image": a.Image, "tasks": len(questions), "pts": a.Points, "content": a.Content, "quiz_version": quizVersion(a.Questions), "map_label": a.MapLabel})
+		if a.Latitude != nil && a.Longitude != nil {
+			coords[a.Slug] = []float64{*a.Latitude, *a.Longitude}
+		}
+	}
+	if rows.Err() != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	for i := range source.Categories {
+		source.Categories[i].Count = counts[source.Categories[i].ID]
+	}
+	respondJSON(w, map[string]interface{}{"categories": source.Categories, "places": places, "quizzes": quizzes, "coords": coords}, 200)
 }
 
 func saveAtlasResultHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
-	claims := userFromContext(r.Context())
-	var request struct {
-		Slug     string `json:"slug"`
-		Score    int    `json:"score"`
-		MaxScore int    `json:"max_score"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Slug == "" || request.MaxScore <= 0 || request.Score < 0 || request.Score > request.MaxScore {
-		respondError(w, "invalid result", http.StatusBadRequest)
+	if r.Method != http.MethodPost {
+		respondError(w, "method not allowed", 405)
 		return
 	}
-	var articleID int
-	if err := db.QueryRow("SELECT article_id FROM atlas_places WHERE slug = ?", request.Slug).Scan(&articleID); err != nil {
-		respondError(w, "place not found", http.StatusNotFound)
+	var req struct {
+		Slug    string       `json:"slug"`
+		Version string       `json:"version"`
+		Answers []DuelAnswer `json:"answers"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 131072)).Decode(&req) != nil || req.Slug == "" {
+		respondError(w, "invalid request", 400)
 		return
 	}
-	data := readAtlasData()
-	if request.MaxScore != len(data.Quizzes[request.Slug]) {
-		respondError(w, "invalid number of questions", http.StatusBadRequest)
+	var id int
+	if db.QueryRow("SELECT article_id FROM atlas_places WHERE published=1 AND slug=?", req.Slug).Scan(&id) != nil {
+		respondError(w, "place not found", 404)
 		return
 	}
-	if _, err := db.Exec(`INSERT INTO results (user_id, article_id, score, max_score)
-		VALUES (?, ?, ?, ?) ON CONFLICT(user_id, article_id) DO UPDATE SET
-		score=excluded.score, max_score=excluded.max_score, created_at=CURRENT_TIMESTAMP
-		WHERE excluded.score > results.score`,
-		claims.UserID, articleID, request.Score, request.MaxScore); err != nil {
-		respondError(w, "could not save result", http.StatusInternalServerError)
-		return
-	}
-	recalcPoints(claims.UserID)
-	respondJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+	saveVerifiedResult(w, r, id, req.Version, req.Answers)
 }
 
 func rewardsHandler(w http.ResponseWriter, r *http.Request) {
@@ -299,4 +332,33 @@ func redeemRewardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, map[string]interface{}{"status": "ok", "points": points - cost}, http.StatusOK)
+}
+
+func atlasMapLabel(slug string) string {
+	switch slug {
+	case "kupalle":
+		return "Александрия — место праздника Купалье"
+	case "kolyady":
+		return "Семежево — обряд «Колядные цари»"
+	case "dozhinki":
+		return "Горки — место республиканских Дожинок 2012 года"
+	}
+	return ""
+}
+
+// Upgrade only unchanged seed content. Never replace an administrator's edits.
+func upgradeAtlasContent() {
+	var source map[string]struct {
+		Content interface{} `json:"content"`
+		Image   string      `json:"image"`
+	}
+	if json.Unmarshal(atlasContentJSON, &source) != nil {
+		return
+	}
+	for _, p := range readAtlasData().Places {
+		seed, _ := json.Marshal([]map[string]string{{"type": "lead", "text": p.Lead}})
+		content, _ := json.Marshal(source[p.ID].Content)
+		_, _ = db.Exec("UPDATE articles SET content=?, image=? WHERE id=(SELECT article_id FROM atlas_places WHERE slug=?) AND content=?",
+			string(content), source[p.ID].Image, p.ID, string(seed))
+	}
 }

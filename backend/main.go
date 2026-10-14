@@ -88,6 +88,7 @@ func newServerMux() http.Handler {
 
 	// Articles public
 	mux.HandleFunc("/api/atlas", getAtlasHandler)
+	mux.HandleFunc("/api/atlas/check", atlasCheckHandler)
 	mux.HandleFunc("/api/atlas/results", authMiddleware(saveAtlasResultHandler))
 	mux.HandleFunc("/api/atlas/progress", authMiddleware(atlasProgressHandler))
 	mux.HandleFunc("/api/rewards", rewardsHandler)
@@ -122,6 +123,8 @@ func newServerMux() http.Handler {
 	mux.HandleFunc("/api/team-battles/", authMiddleware(teamBattleActionHandler))
 
 	// Admin
+	mux.HandleFunc("/api/admin/suggestions", adminMiddleware(adminSuggestionsHandler))
+	mux.HandleFunc("/api/admin/password", adminMiddleware(adminPasswordHandler))
 	mux.HandleFunc("/api/admin/articles", adminMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

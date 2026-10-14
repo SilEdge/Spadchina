@@ -191,7 +191,8 @@ func TestServerWorkflow(t *testing.T) {
 	if len(duel.Questions) != 10 {
 		t.Fatalf("duel has %d questions", len(duel.Questions))
 	}
-	finish := DuelFinishRequest{Answers: correctAnswers(duel.Questions)}
+	privateDuel, _ := getDuelForUser(duel.ID, first.User.ID)
+	finish := DuelFinishRequest{Answers: correctAnswers(privateDuel.Questions)}
 	requestJSON(t, client, http.MethodPost, fmt.Sprintf("%s/api/duels/%d/finish", server.URL, duel.ID), first.Token, finish, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodPost, fmt.Sprintf("%s/api/duels/%d/finish", server.URL, duel.ID), second.Token, DuelFinishRequest{}, http.StatusOK, &duel)
 	if duel.Status != "completed" {
@@ -215,7 +216,8 @@ func TestServerWorkflow(t *testing.T) {
 	if len(battle.Questions) != 10 {
 		t.Fatalf("team battle has %d questions", len(battle.Questions))
 	}
-	battleFinish := DuelFinishRequest{Answers: correctAnswers(battle.Questions)}
+	privateBattle, _ := getTeamBattleByCode(battle.Code)
+	battleFinish := DuelFinishRequest{Answers: correctAnswers(privateBattle.Questions)}
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", first.Token, battleFinish, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", second.Token, battleFinish, http.StatusOK, &battle)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", second.Token, battleFinish, http.StatusConflict, nil)
@@ -230,7 +232,7 @@ func TestServerWorkflow(t *testing.T) {
 		t.Fatalf("team battle should use saved profile names: %+v", battle.Participants)
 	}
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", first.Token, map[string]interface{}{
-		"slug": "mir", "score": 5, "max_score": 5,
+		"slug": "mir", "version": atlasTestVersion(t, "mir"), "answers": atlasTestAnswers(t, "mir", 5),
 	}, http.StatusOK, nil)
 	var earned User
 	requestJSON(t, client, http.MethodGet, server.URL+"/api/me", first.Token, nil, http.StatusOK, &earned)
@@ -256,7 +258,8 @@ func TestServerWorkflow(t *testing.T) {
 		Email: "admin@example.test", Password: "test-admin-password-123",
 	}, http.StatusOK, &admin)
 	article := ArticleInput{
-		Title: "Тестовый материал", Category: "history", CategoryLabel: "История",
+		Publication: Publication{Published: true, Points: 120},
+		Title:       "Тестовый материал", Category: "history", CategoryLabel: "История",
 		Difficulty: "easy", DifficultyLabel: "Лёгкий", ReadTime: 3, Image: "/images/kupalle.jpg",
 		Content:   `[{"type":"lead","text":"Тест"}]`,
 		Questions: `[{"id":99001,"type":"single","question":"Тест?","options":["Да","Нет"],"correct":0}]`,
@@ -388,19 +391,19 @@ func TestAtlasPersistenceAndRewards(t *testing.T) {
 		} `json:"places"`
 	}
 	requestJSON(t, client, http.MethodGet, server.URL+"/api/atlas", "", nil, http.StatusOK, &atlas)
-	if len(atlas.Places) != 27 || atlas.Places[0].ID != "mir" || atlas.Places[0].Image != "img/hero.jpg" {
+	if len(atlas.Places) != 27 || atlas.Places[0].ID != "mir" || atlas.Places[0].Image != "assets/ae0141b95a.jpg" {
 		t.Fatalf("unexpected archive atlas payload: %d places, first=%+v", len(atlas.Places), atlas.Places[0])
 	}
 
 	user := registerTestUser(t, client, server.URL, "Atlas Tester", "atlas@example.com")
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", user.Token, map[string]interface{}{
-		"slug": "mir", "score": 3, "max_score": 5,
+		"slug": "mir", "version": atlasTestVersion(t, "mir"), "answers": atlasTestAnswers(t, "mir", 3),
 	}, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", user.Token, map[string]interface{}{
-		"slug": "mir", "score": 1, "max_score": 1,
+		"slug": "mir", "version": atlasTestVersion(t, "mir"), "score": 9999, "max_score": 1,
 	}, http.StatusBadRequest, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/atlas/results", user.Token, map[string]interface{}{
-		"slug": "mir", "score": 2, "max_score": 5,
+		"slug": "mir", "version": atlasTestVersion(t, "mir"), "answers": atlasTestAnswers(t, "mir", 2),
 	}, http.StatusOK, nil)
 	var progress []struct {
 		Slug     string `json:"slug"`
@@ -433,4 +436,31 @@ func TestAtlasPersistenceAndRewards(t *testing.T) {
 	if len(owned) != 1 || owned[0].ID != rewards[0].ID {
 		t.Fatalf("reward was not stored: %+v", owned)
 	}
+}
+
+func atlasTestVersion(t *testing.T, slug string) string {
+	t.Helper()
+	var id int
+	if err := db.QueryRow("SELECT article_id FROM atlas_places WHERE slug=?", slug).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	_, v, err := loadArticleQuiz(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+func atlasTestAnswers(t *testing.T, slug string, score int) []DuelAnswer {
+	t.Helper()
+	var id int
+	_ = db.QueryRow("SELECT article_id FROM atlas_places WHERE slug=?", slug).Scan(&id)
+	q, _, err := loadArticleQuiz(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers := correctAnswers(q)
+	for i := score; i < len(answers); i++ {
+		answers[i].Selected = []int{(answers[i].Selected[0] + 1) % len(q[i].Options)}
+	}
+	return answers
 }

@@ -24,6 +24,7 @@ type Article struct {
 	Image           string `json:"image"`
 	Content         string `json:"content"`   // JSON string
 	Questions       string `json:"questions"` // JSON string
+	Publication
 }
 
 type ArticleInput struct {
@@ -36,6 +37,18 @@ type ArticleInput struct {
 	Image           string `json:"image"`
 	Content         string `json:"content"`
 	Questions       string `json:"questions"`
+	Publication
+}
+
+type Publication struct {
+	Published bool     `json:"published"`
+	Slug      string   `json:"slug"`
+	Region    string   `json:"region"`
+	Era       string   `json:"era"`
+	Points    int      `json:"points"`
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
+	MapLabel  string   `json:"map_label"`
 }
 
 type Result struct {
@@ -123,11 +136,13 @@ type Duel struct {
 }
 
 type DuelQuestion struct {
+	Multiple      bool        `json:"multiple,omitempty"`
 	ID            int         `json:"id"`
 	Type          string      `json:"type"`
 	Question      string      `json:"question"`
 	Options       []string    `json:"options"`
-	Correct       interface{} `json:"correct"`
+	Correct       interface{} `json:"correct,omitempty"`
+	Explanation   string      `json:"explanation,omitempty"`
 	Category      string      `json:"category"`
 	CategoryLabel string      `json:"category_label"`
 }

@@ -102,6 +102,10 @@ func initDB() {
 			y INTEGER NOT NULL,
 			FOREIGN KEY (article_id) REFERENCES articles(id)
 		);`,
+		`ALTER TABLE atlas_places ADD COLUMN published INTEGER NOT NULL DEFAULT 1;`,
+		`ALTER TABLE atlas_places ADD COLUMN latitude REAL;`,
+		`ALTER TABLE atlas_places ADD COLUMN longitude REAL;`,
+		`ALTER TABLE atlas_places ADD COLUMN map_label TEXT NOT NULL DEFAULT '';`,
 		`CREATE TABLE IF NOT EXISTS reward_items (
 			id TEXT PRIMARY KEY,
 			icon TEXT NOT NULL,
@@ -258,6 +262,10 @@ func createAdmin() {
 	}
 	if len(adminPassword) < 6 {
 		log.Println("Admin account setup skipped: ADMIN_PASSWORD must be at least 6 characters")
+		return
+	}
+	var existingRole string
+	if db.QueryRow("SELECT role FROM users WHERE lower(email)=?", strings.ToLower(adminEmail)).Scan(&existingRole) == nil && existingRole == "admin" {
 		return
 	}
 

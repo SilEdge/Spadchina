@@ -16,6 +16,21 @@ import (
 )
 
 func respondJSON(w http.ResponseWriter, data interface{}, status int) {
+	// Never ship battle answer keys to players; scoring uses the database copy.
+	switch value := data.(type) {
+	case Duel:
+		value.Questions = publicBattleQuestions(value.Questions)
+		data = value
+	case []Duel:
+		copy := append([]Duel{}, value...)
+		for i := range copy {
+			copy[i].Questions = publicBattleQuestions(copy[i].Questions)
+		}
+		data = copy
+	case TeamBattle:
+		value.Questions = publicBattleQuestions(value.Questions)
+		data = value
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
@@ -203,67 +218,83 @@ func uniqueUsernameFromName(name string) string {
 
 func getArticlesHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
-	rows, err := db.Query("SELECT id, title, category, category_label, difficulty, difficulty_label, read_time, image, content, questions FROM articles")
+	if r.Method != http.MethodGet {
+		respondError(w, "method not allowed", 405)
+		return
+	}
+	admin := strings.HasPrefix(r.URL.Path, "/api/admin/")
+	query := articleSelect
+	if !admin {
+		query += " WHERE ap.published=1"
+	} else {
+		query += " WHERE COALESCE(ap.published,0)>=0"
+	}
+	rows, err := db.Query(query + " ORDER BY a.id")
 	if err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+		respondError(w, "db error", 500)
 		return
 	}
 	defer rows.Close()
-
-	articles := []Article{}
+	items := []Article{}
 	for rows.Next() {
-		var a Article
-		if err := rows.Scan(&a.ID, &a.Title, &a.Category, &a.CategoryLabel, &a.Difficulty, &a.DifficultyLabel, &a.ReadTime, &a.Image, &a.Content, &a.Questions); err != nil {
-			continue
+		a, err := scanArticle(rows)
+		if err != nil {
+			respondError(w, "db error", 500)
+			return
 		}
-		articles = append(articles, a)
+		if !admin {
+			hideArticleAnswers(&a)
+		}
+		items = append(items, a)
 	}
-
-	respondJSON(w, articles, http.StatusOK)
+	if rows.Err() != nil {
+		respondError(w, "db error", 500)
+		return
+	}
+	respondJSON(w, items, 200)
 }
 
 func getArticleHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/articles/")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		respondError(w, "invalid id", http.StatusBadRequest)
+	if r.Method != http.MethodGet {
+		respondError(w, "method not allowed", 405)
 		return
 	}
-
-	var a Article
-	err = db.QueryRow("SELECT id, title, category, category_label, difficulty, difficulty_label, read_time, image, content, questions FROM articles WHERE id = ?", id).
-		Scan(&a.ID, &a.Title, &a.Category, &a.CategoryLabel, &a.Difficulty, &a.DifficultyLabel, &a.ReadTime, &a.Image, &a.Content, &a.Questions)
+	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/articles/"))
 	if err != nil {
-		respondError(w, "not found", http.StatusNotFound)
+		respondError(w, "invalid id", 400)
 		return
 	}
-
-	respondJSON(w, a, http.StatusOK)
+	a, err := scanArticle(db.QueryRow(articleSelect+" WHERE a.id=? AND ap.published=1", id))
+	if err != nil {
+		respondError(w, "not found", 404)
+		return
+	}
+	hideArticleAnswers(&a)
+	respondJSON(w, a, 200)
 }
 
 func saveResultHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
-	claims := userFromContext(r.Context())
-
-	var req Result
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, "invalid request", http.StatusBadRequest)
+	if r.Method != http.MethodPost {
+		respondError(w, "method not allowed", 405)
 		return
 	}
-
-	_, err := db.Exec(
-		`INSERT INTO results (user_id, article_id, score, max_score) VALUES (?, ?, ?, ?)
-		ON CONFLICT(user_id, article_id) DO UPDATE SET score = excluded.score, max_score = excluded.max_score`,
-		claims.UserID, req.ArticleID, req.Score, req.MaxScore,
-	)
-	if err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+	var req struct {
+		ArticleID int          `json:"article_id"`
+		Version   string       `json:"version"`
+		Answers   []DuelAnswer `json:"answers"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 131072)).Decode(&req) != nil {
+		respondError(w, "invalid request", 400)
 		return
 	}
-
-	recalcPoints(claims.UserID)
-	respondJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
+	var published int
+	if db.QueryRow("SELECT COUNT(*) FROM atlas_places WHERE published=1 AND article_id=?", req.ArticleID).Scan(&published) != nil || published == 0 {
+		respondError(w, "Статья не найдена", 404)
+		return
+	}
+	saveVerifiedResult(w, r, req.ArticleID, req.Version, req.Answers)
 }
 
 func getMyResultsHandler(w http.ResponseWriter, r *http.Request) {
@@ -293,7 +324,7 @@ func getProgressHandler(w http.ResponseWriter, r *http.Request) {
 
 	var points, total, completed int
 	db.QueryRow("SELECT points FROM users WHERE id = ?", claims.UserID).Scan(&points)
-	db.QueryRow("SELECT COUNT(*) FROM articles WHERE title NOT LIKE 'Командные вопросы:%'").Scan(&total)
+	db.QueryRow("SELECT COUNT(*) FROM atlas_places").Scan(&total)
 	db.QueryRow("SELECT COUNT(*) FROM results WHERE user_id = ?", claims.UserID).Scan(&completed)
 
 	respondJSON(w, map[string]interface{}{
@@ -993,6 +1024,8 @@ func scoreDuelAnswers(questions []DuelQuestion, answers []DuelAnswer) int {
 
 func isDuelAnswerCorrect(correct interface{}, selected []int) bool {
 	switch value := correct.(type) {
+	case int:
+		return len(selected) == 1 && selected[0] == value
 	case float64:
 		return len(selected) == 1 && selected[0] == int(value)
 	case []interface{}:
