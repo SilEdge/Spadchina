@@ -256,6 +256,23 @@ func TestServerWorkflow(t *testing.T) {
 		ID int `json:"id"`
 	}
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/admin/articles", admin.Token, article, http.StatusCreated, &createdArticle)
+	var adminArticles []Article
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/admin/articles", admin.Token, nil, http.StatusOK, &adminArticles)
+	foundArticle := false
+	for _, item := range adminArticles {
+		if item.ID == createdArticle.ID {
+			foundArticle = true
+			break
+		}
+	}
+	if !foundArticle {
+		t.Fatalf("admin article list does not include the newly created article %d", createdArticle.ID)
+	}
+	var loadedArticle Article
+	requestJSON(t, client, http.MethodGet, fmt.Sprintf("%s/api/articles/%d", server.URL, createdArticle.ID), "", nil, http.StatusOK, &loadedArticle)
+	if loadedArticle.ID != createdArticle.ID || loadedArticle.Title != article.Title {
+		t.Fatalf("article detail mismatch: got %+v", loadedArticle)
+	}
 	article.Title = "Тестовый материал обновлён"
 	requestJSON(t, client, http.MethodPut, fmt.Sprintf("%s/api/admin/articles/%d", server.URL, createdArticle.ID), admin.Token, article, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodDelete, fmt.Sprintf("%s/api/admin/articles/%d", server.URL, createdArticle.ID), admin.Token, nil, http.StatusOK, nil)

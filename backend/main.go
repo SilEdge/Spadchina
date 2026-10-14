@@ -93,13 +93,8 @@ func newServerMux() http.Handler {
 	mux.HandleFunc("/api/rewards", rewardsHandler)
 	mux.HandleFunc("/api/rewards/my", authMiddleware(myRewardsHandler))
 	mux.HandleFunc("/api/rewards/redeem", authMiddleware(redeemRewardHandler))
-	mux.HandleFunc("/api/articles", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/articles/") {
-			getArticleHandler(w, r)
-			return
-		}
-		getArticlesHandler(w, r)
-	})
+	mux.HandleFunc("/api/articles", getArticlesHandler)
+	mux.HandleFunc("/api/articles/", getArticleHandler)
 
 	// Results
 	mux.HandleFunc("/api/results", authMiddleware(saveResultHandler))
@@ -128,9 +123,12 @@ func newServerMux() http.Handler {
 
 	// Admin
 	mux.HandleFunc("/api/admin/articles", adminMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		switch r.Method {
+		case http.MethodGet:
+			getArticlesHandler(w, r)
+		case http.MethodPost:
 			createArticleHandler(w, r)
-		} else {
+		default:
 			respondError(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
