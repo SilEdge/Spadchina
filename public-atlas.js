@@ -1,5 +1,3 @@
-import { installAtlasMap } from './atlas-map.js';
-
 export const placeURL = (place) => window.SP?.n?.some((item) => item.id === place.id)
   ? `place-${place.id}.html` : `article.html?slug=${encodeURIComponent(place.id)}`;
 const categoryLabel = (atlas, place) => atlas.categories.find((item) => item.id === place.cat)?.name || 'История';
@@ -49,7 +47,6 @@ export async function installHomeAtlas({ getAtlas, esc }) {
   let atlas;
   try { atlas = await getAtlas(); }
   catch { atlas = { categories: [], places: window.SP?.n || [], coords: window.SP?.c || {} }; }
-  installAtlasMap(target, atlas, placeURL, esc);
   const list = main.querySelector('#atlas-map')?.closest('section')?.querySelector('ol');
   if (list) {
     list.classList.add('atlas-place-list');

@@ -1810,15 +1810,6 @@ main a[data-slug] { min-width: 0; overflow-wrap: anywhere; }
 .admin-editor .admin-checkbox { display: flex; align-items: center; gap: 10px; }
 .admin-editor .admin-checkbox input { width: 18px; height: 18px; }
 .admin-idea p { margin-top: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.interactive-atlas-map { height: 560px; width: 100%; position: relative; z-index: 0; font-family: Onest, sans-serif; background: #e5edf2; }
-.atlas-marker { border: 2px solid white; border-radius: 50%; background: #153d66; color: white; box-shadow: 0 2px 6px #0004; display: grid; place-items: center; font: 700 12px Onest, sans-serif; }
-.interactive-atlas-map .atlas-marker { display: grid; }
-.interactive-atlas-map .atlas-marker span { width: auto; height: auto; border: 0; box-shadow: none; border-radius: 0; background: none; }
-.interactive-atlas-map.leaflet-container img.leaflet-tile { mix-blend-mode: normal; }
-.atlas-popup-link { display: inline-block; margin-top: 6px; font-weight: 700; }
-.leaflet-popup-content { font-family: Onest, sans-serif; color: #102c48; }
-.leaflet-popup-content p { margin: 8px 0; }
-@media (max-width: 640px) { .interactive-atlas-map { height: 430px; } }
 .admin-help { color: var(--muted-foreground); font-size: 14px; }
 .admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-actions button, .admin-primary { display: inline-flex; padding: 10px 15px; border: 1px solid var(--foreground); background: var(--foreground); color: var(--background); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
