@@ -364,5 +364,33 @@ func upgradeAtlasContent() {
 		content, _ := json.Marshal(source[p.ID].Content)
 		_, _ = db.Exec("UPDATE articles SET content=?, image=? WHERE id=(SELECT article_id FROM atlas_places WHERE slug=?) AND content=?",
 			string(content), source[p.ID].Image, p.ID, string(seed))
+		if p.ID == "brest" {
+			var current string
+			if err := db.QueryRow("SELECT content FROM articles WHERE id=(SELECT article_id FROM atlas_places WHERE slug=?)", p.ID).Scan(&current); err == nil && isOriginalBrestSeed(current) {
+				_, _ = db.Exec("UPDATE articles SET content=?, image=? WHERE id=(SELECT article_id FROM atlas_places WHERE slug=?) AND content=?",
+					string(content), source[p.ID].Image, p.ID, current)
+			}
+		}
 	}
+}
+
+func isOriginalBrestSeed(raw string) bool {
+	var blocks []map[string]interface{}
+	if json.Unmarshal([]byte(raw), &blocks) != nil || len(blocks) != 6 {
+		return false
+	}
+	expected := []struct{ kind, text string }{
+		{"lead", "Место памяти о первых днях войны и мужестве защитников."},
+		{"paragraph", "Защитники приняли бой 22 июня 1941 года."},
+		{"paragraph", "Крепость находится в Бресте."},
+		{"paragraph", "Мемориал посвящён мужеству защитников крепости."},
+		{"paragraph", "Главный монумент мемориального комплекса называется «Мужество»."},
+		{"paragraph", "Вечный огонь — место памяти о погибших."},
+	}
+	for i, block := range blocks {
+		if len(block) != 2 || block["type"] != expected[i].kind || block["text"] != expected[i].text {
+			return false
+		}
+	}
+	return true
 }
