@@ -8,7 +8,18 @@ const API_ORIGIN = window.location.hostname.endsWith('.vercel.app') ? '' : Strin
 const API_ROOT = `${API_ORIGIN}/api`;
 const TOKEN_KEY = 'cultcode_token';
 const PENDING_KEY = 'spadchyna_pending_quiz_results';
-const token = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || '';
+const token = () => {
+  const tabToken = sessionStorage.getItem(TOKEN_KEY);
+  if (tabToken) {
+    localStorage.removeItem(TOKEN_KEY);
+    return tabToken;
+  }
+  const legacyToken = localStorage.getItem(TOKEN_KEY);
+  if (!legacyToken) return '';
+  sessionStorage.setItem(TOKEN_KEY, legacyToken);
+  localStorage.removeItem(TOKEN_KEY);
+  return legacyToken;
+};
 const cache = { atlas: null, user: null };
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -91,7 +102,6 @@ function bindAuthForm(form, initialMode = 'login') {
       const body = { email: form.elements.email.value.trim(), password: form.elements.password.value };
       if (mode === 'register') body.name = form.elements.name.value.trim();
       const result = await api(mode === 'register' ? '/register' : '/login', { method: 'POST', body: JSON.stringify(body) });
-      localStorage.setItem(TOKEN_KEY, result.token);
       sessionStorage.setItem(TOKEN_KEY, result.token);
       cache.user = result.user;
       await syncPendingResults();
@@ -176,7 +186,7 @@ async function installAuth() {
         const body = { email: pageForm.elements.email.value.trim(), password: pageForm.elements.password.value };
         if (mode === 'register') body.name = pageForm.elements.name.value.trim();
         const result = await api(mode === 'register' ? '/register' : '/login', { method: 'POST', body: JSON.stringify(body) });
-        localStorage.setItem(TOKEN_KEY, result.token); sessionStorage.setItem(TOKEN_KEY, result.token);
+        sessionStorage.setItem(TOKEN_KEY, result.token);
         cache.user = result.user;
         await syncPendingResults();
         location.href = safeNextPage();
@@ -198,7 +208,7 @@ async function installAuth() {
             logout.type = 'button'; logout.dataset.headerLogout = 'true'; logout.className = button.className;
             logout.textContent = 'Выйти'; logout.setAttribute('aria-label', 'Выйти из аккаунта');
             logout.addEventListener('click', () => {
-              localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); cache.user = null;
+              sessionStorage.removeItem(TOKEN_KEY); cache.user = null;
               location.href = 'index.html';
             });
             button.insertAdjacentElement('afterend', logout);
@@ -220,7 +230,7 @@ async function installAuth() {
       }
     } catch (error) {
       if (error.status === 401 || error.status === 403 || error.status === 404) {
-        localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); cache.user = null;
+        sessionStorage.removeItem(TOKEN_KEY); cache.user = null;
       }
     }
   }

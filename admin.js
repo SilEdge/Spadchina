@@ -1,7 +1,19 @@
 import { requestJSON } from './request-json.js';
 
 const root = document.getElementById('admin-root');
-const token = localStorage.getItem('cultcode_token') || sessionStorage.getItem('cultcode_token');
+const token = (() => {
+  const key = 'cultcode_token';
+  const tabToken = sessionStorage.getItem(key);
+  if (tabToken) {
+    localStorage.removeItem(key);
+    return tabToken;
+  }
+  const legacyToken = localStorage.getItem(key);
+  if (!legacyToken) return '';
+  sessionStorage.setItem(key, legacyToken);
+  localStorage.removeItem(key);
+  return legacyToken;
+})();
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const categories = [['history', 'История'], ['culture', 'Культура'], ['nature', 'Природа'], ['traditions', 'Традиции'], ['architecture', 'Архитектура'], ['memory', 'Память']];
 const categoryOptions = (selected) => categories.map(([id, label]) => `<option value="${id}" ${selected === id ? 'selected' : ''}>${label}</option>`).join('');
