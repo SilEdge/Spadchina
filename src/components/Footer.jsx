@@ -23,7 +23,6 @@ export default function Footer({ onNavigate }) {
       </div>
       <div className="container footer-bottom">
         <p>⌖ &nbsp;Цифровой атлас Беларуси</p>
-        <p>Номинация «Судьба малой родины в объективе технологий»</p>
       </div>
     </footer>
   );
