@@ -49,6 +49,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		}
 		cloudError = openDatabase()
 		if cloudError == nil {
+			upgradeAtlasContent()
 			cloudHandler = newServerMux()
 		}
 	})
