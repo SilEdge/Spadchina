@@ -188,7 +188,7 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal([]byte(a.Content), &blocks)
 		lead := ""
 		for _, block := range blocks {
-			if block.Type != "credit" && !strings.HasPrefix(block.Text, "Фото:") {
+			if !isVisualCredit(block.Type, block.Text) {
 				lead = block.Text
 				break
 			}
@@ -205,7 +205,7 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 		quizzes[a.Slug] = public
 		counts[a.Category]++
 		places = append(places, map[string]interface{}{"id": a.Slug, "article_id": a.ID, "name": a.Title, "cat": a.Category, "region": a.Region, "era": a.Era,
-			"lead": lead, "image": a.Image, "tasks": len(questions), "pts": a.Points, "content": a.Content, "quiz_version": quizVersion(a.Questions), "map_label": a.MapLabel})
+			"lead": lead, "image": a.Image, "tasks": len(questions), "pts": a.Points, "content": publicArticleContent(a.Content), "quiz_version": quizVersion(a.Questions), "map_label": a.MapLabel})
 		if a.Latitude != nil && a.Longitude != nil {
 			coords[a.Slug] = []float64{*a.Latitude, *a.Longitude}
 		}

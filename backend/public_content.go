@@ -23,6 +23,7 @@ func scanArticle(row interface{ Scan(...interface{}) error }) (Article, error) {
 }
 
 func hideArticleAnswers(a *Article) {
+	a.Content = publicArticleContent(a.Content)
 	var questions []DuelQuestion
 	if json.Unmarshal([]byte(a.Questions), &questions) == nil {
 		for i := range questions {
@@ -33,6 +34,31 @@ func hideArticleAnswers(a *Article) {
 		raw, _ := json.Marshal(questions)
 		a.Questions = string(raw)
 	}
+}
+
+func isVisualCredit(blockType, text string) bool {
+	text = strings.TrimSpace(text)
+	return blockType == "credit" || strings.HasPrefix(text, "Фото:") || strings.HasPrefix(text, "Иллюстрация создана с помощью ИИ")
+}
+
+func publicArticleContent(raw string) string {
+	var blocks []map[string]interface{}
+	if json.Unmarshal([]byte(raw), &blocks) != nil {
+		return raw
+	}
+	visible := make([]map[string]interface{}, 0, len(blocks))
+	for _, block := range blocks {
+		blockType, _ := block["type"].(string)
+		text, _ := block["text"].(string)
+		if !isVisualCredit(blockType, text) {
+			visible = append(visible, block)
+		}
+	}
+	encoded, err := json.Marshal(visible)
+	if err != nil {
+		return raw
+	}
+	return string(encoded)
 }
 
 func publicBattleQuestions(questions []DuelQuestion) []DuelQuestion {
@@ -136,7 +162,7 @@ func savePublication(tx *sql.Tx, id int64, input ArticleInput) error {
 	_ = json.Unmarshal([]byte(input.Content), &blocks)
 	lead := ""
 	for _, block := range blocks {
-		if block.Type != "credit" && !strings.HasPrefix(block.Text, "Фото:") {
+		if !isVisualCredit(block.Type, block.Text) {
 			lead = block.Text
 			break
 		}

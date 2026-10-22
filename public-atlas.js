@@ -102,10 +102,8 @@ function renderArticle(place, atlas, esc) {
   heading.nextElementSibling.textContent = place.region;
   const body = article.querySelector('.max-w-2xl');
   let blocks = []; try { blocks = JSON.parse(place.content); } catch { blocks = [{ type: 'lead', text: place.lead }]; }
-  const credits = blocks.filter((block) => block.type === 'credit' || block.text?.startsWith('Фото:'));
-  blocks = blocks.filter((block) => !credits.includes(block));
+  blocks = blocks.filter((block) => block.type !== 'credit' && !/^(Фото:|Иллюстрация создана с помощью ИИ)/.test(block.text?.trim() || ''));
   body.innerHTML = `<p class="font-display text-2xl leading-relaxed">${esc(blocks[0]?.text || '')}</p><div class="mt-8 space-y-5 text-lg leading-relaxed text-foreground/85">${blocks.slice(1).map((block) => block.type === 'heading' ? `<h2>${esc(block.text)}</h2>` : block.type === 'quote' ? `<blockquote>${esc(block.text)}</blockquote>` : `<p>${esc(block.text)}</p>`).join('')}</div><h2 class="mt-10 text-3xl font-bold">Ключевые факты</h2><dl class="mt-6 grid grid-cols-2 gap-px border border-border bg-border">${[['Эпоха', place.era || '—'], ['Регион', place.region || '—'], ['Направление', categoryLabel(atlas, place)], ['Заданий', place.tasks]].map(([label, value]) => `<div class="bg-card p-5"><dt class="text-xs uppercase tracking-widest text-muted-foreground">${label}</dt><dd class="mt-1 font-display text-xl font-bold">${esc(value)}</dd></div>`).join('')}</dl>`;
-  if (credits.length) body.insertAdjacentHTML('afterbegin', `<p class="mb-6 text-xs text-muted-foreground">${credits.map((block) => esc(block.text)).join('<br>')}</p>`);
 }
 
 export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePendingResult }) {
