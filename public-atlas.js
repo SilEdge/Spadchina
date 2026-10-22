@@ -5,8 +5,8 @@ const categoryLabel = (atlas, place) => atlas.categories.find((item) => item.id 
 function catalogDescription(place, category) {
   let blocks = [];
   try { blocks = JSON.parse(place.content || '[]'); } catch { /* Use the short atlas summary below. */ }
-  const detail = blocks.find((block) => block.type === 'paragraph' && block.text?.trim())?.text;
-  return [place.lead, detail || `Узнайте больше о месте и его связи с направлением «${category}» в культурном наследии Беларуси.`].filter(Boolean).join(' ');
+  const details = blocks.filter((block) => block.type === 'paragraph' && block.text?.trim()).slice(0, 2).map((block) => block.text.trim());
+  return [place.lead, ...(details.length ? details : [`Узнайте больше о месте и его связи с направлением «${category}» в культурном наследии Беларуси.`])].filter(Boolean).join(' ');
 }
 
 export async function installCatalog({ getAtlas, api, esc, status, token }) {
