@@ -433,8 +433,7 @@ async function installShop() {
   const main = document.querySelector('main'); if (!main || !location.pathname.endsWith('/shop.html')) return;
   try {
     const [items, owned] = await Promise.all([api('/rewards'), token() ? api('/rewards/my') : Promise.resolve([])]);
-    const firstCard = [...main.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Получить')?.closest('.group.border');
-    const grid = firstCard?.parentElement;
+    const grid = main.querySelector('[data-shop-grid]');
     if (!grid) throw new Error('Не найден каталог наград');
     grid.innerHTML = items.map((item) => `<article class="group border border-border bg-card">
       <div class="grid aspect-[4/3] place-items-center bg-secondary text-6xl" aria-hidden="true">${esc(item.icon)}</div>
@@ -444,7 +443,7 @@ async function installShop() {
       <button type="button" class="backend-primary-button" data-reward-id="${esc(item.id)}">Получить</button></div></div></article>`).join('');
     const buttons = [...grid.querySelectorAll('[data-reward-id]')];
     const ownedIDs = new Set(owned.map((item) => item.id));
-    const points = [...main.querySelectorAll('span,p')].find((item) => /У вас .*баллов/.test(item.textContent));
+    const points = main.querySelector('[data-shop-balance]');
     const user = token() ? await api('/me') : null;
     if (points) points.textContent = user ? `У вас ${user.points} баллов` : 'Войдите, чтобы увидеть баланс баллов';
     items.forEach((item, index) => {
