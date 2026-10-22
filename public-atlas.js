@@ -2,6 +2,13 @@ export const placeURL = (place) => window.SP?.n?.some((item) => item.id === plac
   ? `place-${place.id}.html` : `article.html?slug=${encodeURIComponent(place.id)}`;
 const categoryLabel = (atlas, place) => atlas.categories.find((item) => item.id === place.cat)?.name || 'История';
 
+function catalogDescription(place, category) {
+  let blocks = [];
+  try { blocks = JSON.parse(place.content || '[]'); } catch { /* Use the short atlas summary below. */ }
+  const detail = blocks.find((block) => block.type === 'paragraph' && block.text?.trim())?.text;
+  return [place.lead, detail || `Узнайте больше о месте и его связи с направлением «${category}» в культурном наследии Беларуси.`].filter(Boolean).join(' ');
+}
+
 export async function installCatalog({ getAtlas, api, esc, status, token }) {
   const main = document.querySelector('main');
   const input = main?.querySelector('input[placeholder="Найти место…"]');
@@ -11,7 +18,7 @@ export async function installCatalog({ getAtlas, api, esc, status, token }) {
   let atlas;
   try { atlas = await getAtlas(); }
   catch { status(main, 'Не удалось обновить каталог. Перезагрузите страницу.', true); return; }
-  grid.innerHTML = atlas.places.map((place) => `<a class="group relative flex min-h-[260px] flex-col bg-card p-7 transition-colors hover:bg-forest hover:text-forest-foreground" data-category="${esc(place.cat)}" data-slug="${esc(place.id)}" href="${placeURL(place)}"><div class="text-xs font-semibold uppercase tracking-widest text-primary group-hover:text-forest-foreground">${esc(categoryLabel(atlas, place))}</div><h2 class="mt-6 text-3xl font-bold leading-tight">${esc(place.name)}</h2><p class="mt-2 text-sm opacity-70">${esc([place.region, place.era].filter(Boolean).join(' · '))}</p><p class="mt-4 line-clamp-2 text-sm opacity-80">${esc(place.lead)}</p><div class="mt-auto flex items-center justify-between pt-6 text-sm font-semibold"><span>${place.tasks} заданий · +${place.pts}</span><span aria-hidden="true">↗</span></div></a>`).join('');
+  grid.innerHTML = atlas.places.map((place) => `<a class="catalog-place-card group relative flex flex-col bg-card p-7 transition-colors hover:bg-forest hover:text-forest-foreground" data-category="${esc(place.cat)}" data-slug="${esc(place.id)}" href="${placeURL(place)}"><div class="text-xs font-semibold uppercase tracking-widest text-primary group-hover:text-forest-foreground">${esc(categoryLabel(atlas, place))}</div><h2 class="mt-6 text-3xl font-bold leading-tight">${esc(place.name)}</h2><p class="mt-2 text-sm opacity-70">${esc([place.region, place.era].filter(Boolean).join(' · '))}</p><p class="catalog-card-description mt-4 text-sm leading-relaxed opacity-80">${esc(catalogDescription(place, categoryLabel(atlas, place)))}</p><div class="mt-auto flex items-center justify-between pt-6 text-sm font-semibold"><span>${place.tasks} заданий · +${place.pts}</span><span aria-hidden="true">↗</span></div></a>`).join('');
   const cards = [...grid.children];
   const filters = [...main.querySelectorAll('button')].filter((button) => button.textContent.trim());
   let category = '';

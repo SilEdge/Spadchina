@@ -1838,3 +1838,14 @@ main a[data-slug] { min-width: 0; overflow-wrap: anywhere; }
 .admin-user-stats strong { font-family: Unbounded, sans-serif; font-size: 22px; }
 .admin-user-stats span { color: var(--muted-foreground); font-size: 13px; }
 @media (max-width: 650px) { .admin-item { align-items: flex-start; flex-direction: column; } }
+
+/* Homepage intro: readable full-width copy with the two actions on a separate row. */
+.home-intro-layout { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
+.home-intro-copy { width: min(100%, 64rem); }
+.home-intro-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+@media (max-width: 640px) {
+  .home-intro-layout { gap: 20px; }
+  .home-intro-actions { gap: 12px; }
+}
+.catalog-place-grid > .catalog-place-card { min-height: 300px; }
+.catalog-card-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
