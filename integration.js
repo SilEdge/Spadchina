@@ -3,6 +3,7 @@ import './app.js';
 import { installCatalog, installHomeAtlas, installPlaceQuiz } from './public-atlas.js';
 import { buildLeaderboard } from './leaderboard.js';
 import { requestJSON } from './request-json.js';
+import { installAssistantChat } from './assistant-chat.js';
 
 const API_ORIGIN = window.location.hostname.endsWith('.vercel.app') ? '' : String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
 const API_ROOT = `${API_ORIGIN}/api`;
@@ -710,4 +711,5 @@ async function initialize() {
   await Promise.allSettled([installHomeAtlas({ getAtlas, esc }), installCatalog({ getAtlas, api, esc, status, token }), installPlaceQuiz({ getAtlas, api, esc, token, queuePendingResult }), installLeaderboard(), installProfile(), installIdeas(), installShop(), installChat(), installDuelPage(), installTeamBattles()]);
 }
 
+installAssistantChat();
 initialize();
