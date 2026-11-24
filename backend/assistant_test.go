@@ -17,12 +17,35 @@ func TestAtlasAssistant(t *testing.T) {
 	t.Setenv("TURSO_DATABASE_URL", "")
 	t.Setenv("ADMIN_EMAIL", "admin@example.test")
 	t.Setenv("ADMIN_PASSWORD", "test-admin-password-123")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	initDB()
 	t.Cleanup(func() { _ = db.Close() })
 
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/claude" {
+			var body struct {
+				Model     string             `json:"model"`
+				System    string             `json:"system"`
+				Messages  []assistantMessage `json:"messages"`
+				MaxTokens int                `json:"max_tokens"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+				return
+			}
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer test-anthropic-key" ||
+				r.Header.Get("anthropic-version") != "2026-10-21" || body.Model != "claude-haiku-5-5" ||
+				body.MaxTokens != 1200 || body.System != assistantInstructions || len(body.Messages) != 3 ||
+				!strings.Contains(body.Messages[0].Content, "Справочный текст открытой статьи") ||
+				!strings.HasSuffix(body.Messages[0].Content, "Расскажи про замок") ||
+				body.Messages[1].Role != "assistant" || body.Messages[2].Content != "А кто его построил?" {
+				t.Error("unexpected Claude request")
+			}
+			fmt.Fprint(w, `{"content":[{"type":"thinking","text":"hidden"},{"type":"text","text":"Мирский замок начали строить Ильиничи."}]}`)
+			return
+		}
 		if upstreamCalls.Add(1) == 2 {
 			http.Error(w, "provider error: do not forward", http.StatusUnauthorized)
 			return
@@ -47,7 +70,7 @@ func TestAtlasAssistant(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	server := httptest.NewServer(newAssistantHandler(upstream.Client(), upstream.URL))
+	server := httptest.NewServer(newAssistantHandler(upstream.Client(), upstream.URL, upstream.URL+"/claude"))
 	defer server.Close()
 	client := server.Client()
 	var availability map[string]bool
@@ -84,6 +107,17 @@ func TestAtlasAssistant(t *testing.T) {
 	requestJSON(t, client, http.MethodPost, server.URL, token, question, http.StatusBadGateway, &failure)
 	if strings.Contains(failure["error"], "provider error") || failure["error"] == "" {
 		t.Fatalf("unexpected provider error response: %v", failure)
+	}
+
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+	requestJSON(t, client, http.MethodPost, server.URL, token, question, http.StatusOK, &answer)
+	if answer["answer"] != "Мирский замок начали строить Ильиничи." {
+		t.Fatalf("unexpected Claude answer: %v", answer)
+	}
+	t.Setenv("OPENAI_API_KEY", "")
+	requestJSON(t, client, http.MethodGet, server.URL, "", nil, http.StatusOK, &availability)
+	if !availability["enabled"] {
+		t.Fatal("assistant disabled with an Anthropic key")
 	}
 
 	day := time.Now().UTC().Format(time.DateOnly)
