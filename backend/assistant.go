@@ -20,6 +20,7 @@ const (
 	assistantEndpoint     = "https://api.openai.com/v1/responses"
 	claudeEndpoint        = "https://api.anthropic.com/v1/messages"
 	claudeModel           = "claude-haiku-5-5"
+	geminiEndpoint        = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
 	assistantDailyLimit   = 100
 	assistantInstructions = "Ты ИИ-помощник образовательного атласа «Спадчына» для школьников. " +
 		"Помогай разобраться в географии, истории, природе, культуре и традициях Беларуси. " +
@@ -68,11 +69,12 @@ func (q *assistantQuestion) valid() bool {
 	return true
 }
 
-func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint string) http.HandlerFunc {
+func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint, googleEndpoint string) http.HandlerFunc {
 	ask := authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		geminiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 		claudeKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 		key := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-		if claudeKey == "" && key == "" {
+		if geminiKey == "" && claudeKey == "" && key == "" {
 			respondError(w, "ИИ-помощник пока не подключён.", http.StatusServiceUnavailable)
 			return
 		}
@@ -102,7 +104,9 @@ func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint string
 		}
 
 		var answer string
-		if claudeKey != "" {
+		if geminiKey != "" {
+			answer, err = requestGeminiAnswer(r.Context(), client, googleEndpoint, geminiKey, contextText, question.Messages)
+		} else if claudeKey != "" {
 			answer, err = requestClaudeAnswer(r.Context(), client, anthropicEndpoint, claudeKey, contextText, question.Messages)
 		} else {
 			model := strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
@@ -123,7 +127,7 @@ func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint string
 		w.Header().Set("Cache-Control", "no-store")
 		switch r.Method {
 		case http.MethodGet:
-			respondJSON(w, map[string]bool{"enabled": strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" || strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""}, http.StatusOK)
+			respondJSON(w, map[string]bool{"enabled": strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" || strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""}, http.StatusOK)
 		case http.MethodPost:
 			ask(w, r)
 		default:
@@ -250,6 +254,55 @@ func requestClaudeAnswer(ctx context.Context, client *http.Client, endpoint, key
 		}
 	}
 	return joinAssistantAnswer(parts)
+}
+
+func requestGeminiAnswer(ctx context.Context, client *http.Client, endpoint, key, article string, messages []assistantMessage) (string, error) {
+	type part struct {
+		Text    string `json:"text"`
+		Thought bool   `json:"thought,omitempty"`
+	}
+	type content struct {
+		Role  string `json:"role,omitempty"`
+		Parts []part `json:"parts"`
+	}
+	contents := make([]content, 0, len(messages))
+	for i, message := range messages {
+		role, input := message.Role, message.Content
+		if role == "assistant" {
+			role = "model"
+		}
+		if i == 0 && article != "" {
+			input = "Справочный текст открытой статьи атласа:\n" + article + "\n\nВопрос пользователя:\n" + input
+		}
+		contents = append(contents, content{Role: role, Parts: []part{{Text: input}}})
+	}
+	payload := map[string]any{
+		"systemInstruction": content{Parts: []part{{Text: assistantInstructions}}},
+		"contents":          contents,
+		"generationConfig": map[string]any{
+			"maxOutputTokens": 1200,
+			"thinkingConfig":  map[string]string{"thinkingLevel": "low"},
+		},
+	}
+	var data struct {
+		Candidates []struct {
+			Content content `json:"content"`
+		} `json:"candidates"`
+	}
+	headers := map[string]string{"x-goog-api-key": key}
+	if err := callAssistantProvider(ctx, client, endpoint, headers, payload, &data); err != nil {
+		return "", err
+	}
+	if len(data.Candidates) == 0 {
+		return "", errors.New("provider returned no candidates")
+	}
+	var answer []string
+	for _, item := range data.Candidates[0].Content.Parts {
+		if !item.Thought {
+			answer = append(answer, item.Text)
+		}
+	}
+	return joinAssistantAnswer(answer)
 }
 
 func callAssistantProvider(ctx context.Context, client *http.Client, endpoint string, headers map[string]string, payload map[string]any, result any) error {

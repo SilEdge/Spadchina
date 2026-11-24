@@ -89,7 +89,7 @@ func newServerMux() http.Handler {
 
 	// Articles public
 	mux.HandleFunc("/api/atlas", getAtlasHandler)
-	mux.HandleFunc("/api/atlas/assistant", newAssistantHandler(assistantClient, assistantEndpoint, claudeEndpoint))
+	mux.HandleFunc("/api/atlas/assistant", newAssistantHandler(assistantClient, assistantEndpoint, claudeEndpoint, geminiEndpoint))
 	mux.HandleFunc("/api/atlas/check", atlasCheckHandler)
 	mux.HandleFunc("/api/atlas/results", authMiddleware(saveAtlasResultHandler))
 	mux.HandleFunc("/api/atlas/progress", authMiddleware(atlasProgressHandler))
