@@ -99,9 +99,8 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
   const tip = 'ИИ может ошибаться. Не вводите личные данные.';
   const slug = currentPlace();
   let history = [];
-  let availability;
+  let availabilityCheck;
   let pending = false;
-  let signInRequired = false;
 
   function setStatus(message, buttonLabel = '') {
     status.textContent = message;
@@ -139,32 +138,15 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
     send.disabled = pending || !input.value.trim();
   }
 
-  function showAvailability() {
-    if (availability === true && !signInRequired && token()) {
-      setStatus(tip);
-    } else if (availability === true) {
-      setStatus('Поиск по атласу доступен. Войдите для ответов ИИ.', 'Войти');
-    } else {
-      setStatus('');
-    }
-  }
-
-  async function updateAvailability() {
-    if (availability === 'loading') return;
-    if (availability === true) {
-      showAvailability();
-      return;
-    }
-
-    availability = 'loading';
-    setStatus('');
-    try {
-      const { enabled } = await api('/atlas/assistant');
-      availability = typeof enabled === 'boolean' ? enabled : undefined;
-    } catch {
-      availability = undefined;
-    }
-    showAvailability();
+  function checkAvailability() {
+    availabilityCheck ??= api('/atlas/assistant').then(
+      ({ enabled }) => enabled === true,
+      () => false,
+    ).then((enabled) => {
+      if (!enabled) availabilityCheck = undefined;
+      return enabled;
+    });
+    return availabilityCheck;
   }
 
   function dismissGreeting() {
@@ -179,7 +161,9 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
 
   launcher.addEventListener('click', () => {
     setOpen(true);
-    if (!pending) void updateAvailability();
+    void checkAvailability().then((enabled) => {
+      if (!pending) setStatus(enabled ? tip : '');
+    });
   });
   closeButton.addEventListener('click', () => setOpen(false));
   panel.addEventListener('keydown', (event) => {
@@ -210,13 +194,15 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
     input.focus({ preventScroll: true });
     pending = true;
     updateComposer();
-    const useAI = availability === true && !signInRequired && token();
-    showAvailability();
-    typing.firstElementChild.textContent = useAI ? 'Spadchin печатает…' : 'Поиск по атласу…';
+    setStatus('');
+    typing.firstElementChild.textContent = 'Готовим ответ…';
     typing.hidden = false;
     scrollToLatest();
 
     try {
+      const useAI = await checkAvailability();
+      typing.firstElementChild.textContent = useAI ? 'Spadchin печатает…' : 'Поиск по атласу…';
+      setStatus(useAI ? tip : '');
       if (useAI) {
         const { answer } = await api('/atlas/assistant', {
           method: 'POST',
@@ -251,9 +237,8 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
     } catch (error) {
       bubble.remove();
       input.value = question;
-      if (error.status === 401) {
-        signInRequired = true;
-        setStatus('Войдите заново, чтобы продолжить.', 'Войти');
+      if (error.status === 401 || (error.status === 429 && !token())) {
+        setStatus(error.status === 401 ? 'Войдите заново, чтобы продолжить.' : error.message, 'Войти');
         if (!panel.inert) action.focus();
       } else {
         setStatus(error.message);
