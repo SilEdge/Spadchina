@@ -20,7 +20,7 @@ const (
 	assistantEndpoint     = "https://api.openai.com/v1/responses"
 	claudeEndpoint        = "https://api.anthropic.com/v1/messages"
 	claudeModel           = "claude-haiku-5-5"
-	geminiEndpoint        = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+	geminiEndpoint        = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent"
 	assistantDailyLimit   = 100
 	assistantInstructions = "Ты ИИ-помощник образовательного атласа «Спадчына» для школьников. " +
 		"Помогай разобраться в географии, истории, природе, культуре и традициях Беларуси. " +
