@@ -127,29 +127,77 @@ function renderArticle(place, atlas, esc) {
 }
 
 export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePendingResult }) {
-  const slug = location.pathname.match(/place-([\w-]+)\.html$/)?.[1] || (location.pathname.endsWith('/article.html') ? new URLSearchParams(location.search).get('slug') : null);
-  if (!slug) return;
-  const card = document.querySelector('[data-atlas-quiz]'); if (!card) return;
+  const quizPage = document.querySelector('[data-quiz-page]');
+  const card = document.querySelector('[data-atlas-quiz]');
+  if (!card) return;
+
+  const articlePage = location.pathname.endsWith('/article.html');
+  const slug = quizPage || articlePage
+    ? new URLSearchParams(location.search).get('slug')
+    : location.pathname.match(/place-([\w-]+)\.html$/)?.[1];
+  if (!slug) {
+    if (quizPage) card.textContent = 'Выберите статью в каталоге, чтобы начать тест.';
+    return;
+  }
+
   let atlas;
   try { atlas = await getAtlas(); }
-  catch { card.innerHTML = '<p>Не удалось загрузить задания. Перезагрузите страницу.</p>'; return; }
+  catch { card.textContent = 'Не удалось загрузить тест. Перезагрузите страницу.'; return; }
   const place = atlas.places.find((item) => item.id === slug);
-  if (!place) { document.querySelector('main').innerHTML = '<section class="mx-auto max-w-7xl px-6 py-16"><h1>Статья недоступна</h1><a href="catalog.html">Вернуться в каталог</a></section>'; return; }
-  renderArticle(place, atlas, esc);
+  if (!place) {
+    if (quizPage) {
+      card.textContent = 'Тест недоступен. Выберите другую статью в каталоге.';
+    } else {
+      document.querySelector('main').innerHTML = '<section class="mx-auto max-w-7xl px-6 py-16"><h1>Статья недоступна</h1><a href="catalog.html">Вернуться в каталог</a></section>';
+    }
+    return;
+  }
+
+  if (quizPage) {
+    document.title = `Тест · ${place.name} — Спадчына`;
+    quizPage.querySelector('[data-quiz-title]').textContent = place.name;
+    const back = quizPage.querySelector('[data-quiz-back]');
+    back.href = placeURL(place);
+    back.textContent = '← К статье';
+  } else {
+    renderArticle(place, atlas, esc);
+  }
+
   const questions = atlas.quizzes[slug] || [];
   if (!questions.length) { card.textContent = 'Для этой статьи пока нет заданий.'; return; }
+
+  if (!quizPage) {
+    const questionWord = { one: 'вопрос', few: 'вопроса', many: 'вопросов', other: 'вопроса' };
+    const count = new Intl.PluralRules('ru').select(questions.length);
+    card.innerHTML = `<h2 class="font-display text-xl font-bold">Тест по статье</h2><p class="mt-3 text-sm text-muted-foreground">${questions.length} ${questionWord[count]}</p><a class="backend-primary-button atlas-quiz-start" href="quiz.html?slug=${encodeURIComponent(slug)}">Начать тест</a>`;
+    return;
+  }
+
   let index = 0; let score = 0; let answers = [];
   const focusQuestion = () => card.querySelector('h2')?.focus({ preventScroll: true });
   const draw = () => {
     if (index >= questions.length) {
-      card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Тест пройден</p><h2 tabindex="-1" class="mt-3 font-display text-2xl font-bold">Ваш результат: ${score} из ${questions.length}</h2><p class="mt-3" data-save-message>${token() ? 'Сохраняем результат…' : 'Войдите, чтобы сохранить результат и баллы.'}</p><button class="backend-primary-button" type="button">Пройти ещё раз</button>`;
+      const signedIn = Boolean(token());
+      card.innerHTML = `
+        <p class="atlas-quiz-card__eyebrow">Тест пройден</p>
+        <h2 class="atlas-quiz-result__score" tabindex="-1">Ваш результат: ${score} из ${questions.length}</h2>
+        <div class="atlas-quiz-result__summary" role="status" data-save-message>
+          <p>${signedIn ? 'Сохраняем результат…' : 'Войдите, чтобы сохранить результат и баллы.'}</p>
+        </div>
+        <button class="backend-primary-button atlas-quiz-result__retry" type="button">Пройти ещё раз</button>`;
       card.querySelector('button').onclick = () => { index = 0; score = 0; answers = []; draw(); };
       focusQuestion();
       const result = { slug, version: place.quiz_version, answers, score };
-      if (!token()) { queuePendingResult(result); return; }
+      if (!signedIn) { queuePendingResult(result); return; }
       const message = card.querySelector('[data-save-message]');
       api('/atlas/results', { method: 'POST', body: JSON.stringify(result) }).then((saved) => {
-        if (message.isConnected) message.textContent = `Результат сохранён: ${saved.score} из ${saved.max_score}. Баллы в профиле: ${saved.points}.`;
+        if (!message.isConnected) return;
+        message.classList.add('is-saved');
+        message.innerHTML = `<p class="atlas-quiz-result__saved">Результат сохранён</p>
+          <dl class="atlas-quiz-result__stats">
+            <div><dt>Счёт теста</dt><dd>${esc(saved.score)} из ${esc(saved.max_score)}</dd></div>
+            <div><dt>Баллы в профиле</dt><dd>${esc(saved.points)}</dd></div>
+          </dl>`;
       }).catch((error) => {
         if (!error.status || error.status >= 500 || error.status === 401) queuePendingResult(result);
         if (message.isConnected) message.textContent = error.status === 409 ? error.message : 'Не удалось сохранить результат. Повторите вход и отправку.';
@@ -157,7 +205,7 @@ export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePending
       return;
     }
     const question = questions[index]; const selected = new Set();
-    card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Вопрос · ${index + 1} из ${questions.length} · +${place.pts}</p><h2 tabindex="-1" class="mt-3 font-display text-xl font-bold leading-snug">${esc(question.q)}</h2>${question.multiple ? '<p>Выберите все правильные ответы</p>' : ''}<div class="backend-answer-list">${question.a.map((answer, choice) => `<button type="button" data-choice="${choice}" aria-pressed="false">${esc(answer)}</button>`).join('')}</div><div data-quiz-controls></div><p class="backend-quiz-feedback" role="status"></p>`;
+    card.innerHTML = `<p class="atlas-quiz-card__eyebrow">Вопрос ${index + 1} из ${questions.length}</p><progress class="atlas-quiz-card__progress" value="${index + 1}" max="${questions.length}" aria-label="Прогресс теста"></progress><h2 tabindex="-1" class="atlas-quiz-card__question font-display">${esc(question.q)}</h2>${question.multiple ? '<p>Выберите все правильные ответы</p>' : ''}<div class="backend-answer-list">${question.a.map((answer, choice) => `<button type="button" data-choice="${choice}" aria-pressed="false">${esc(answer)}</button>`).join('')}</div><div data-quiz-controls></div><p class="backend-quiz-feedback" role="status"></p>`;
     const controls = card.querySelector('[data-quiz-controls]'); const buttons = [...card.querySelectorAll('[data-choice]')];
     const submit = async (choices) => {
       buttons.forEach((button) => { button.disabled = true; }); controls.querySelector('button')?.setAttribute('disabled', '');
@@ -187,8 +235,5 @@ export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePending
     focusQuestion();
   };
 
-  const questionWord = { one: 'вопрос', few: 'вопроса', many: 'вопросов', other: 'вопроса' };
-  const count = new Intl.PluralRules('ru').select(questions.length);
-  card.innerHTML = `<h2 class="font-display text-xl font-bold">Тест по статье</h2><p class="mt-3 text-sm text-muted-foreground">${questions.length} ${questionWord[count]}</p><button class="backend-primary-button mt-4" type="button">Начать тест</button>`;
-  card.querySelector('button').onclick = draw;
+  draw();
 }
