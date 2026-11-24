@@ -5,8 +5,10 @@ const categoryLabel = (atlas, place) => atlas.categories.find((item) => item.id 
 function catalogDescription(place, category) {
   let blocks = [];
   try { blocks = JSON.parse(place.content || '[]'); } catch { /* Use the short atlas summary below. */ }
-  const details = blocks.filter((block) => block.type === 'paragraph' && block.text?.trim()).slice(0, 2).map((block) => block.text.trim());
-  return [place.lead, ...(details.length ? details : [`Узнайте больше о месте и его связи с направлением «${category}» в культурном наследии Беларуси.`])].filter(Boolean).join(' ');
+  const firstSection = blocks.findIndex((block) => block.type === 'heading');
+  const details = blocks.slice(firstSection + 1).filter((block) => block.type === 'paragraph' && block.text?.trim());
+  return [place.lead, ...(details.length ? details.slice(0, 2).map((block) => block.text.trim())
+    : [`Узнайте больше о месте и его связи с направлением «${category}» в культурном наследии Беларуси.`])].filter(Boolean).join(' ');
 }
 
 export async function installCatalog({ getAtlas, api, esc, status, token }) {
@@ -121,13 +123,13 @@ function renderArticle(place, atlas, esc) {
     ];
   }
   blocks = blocks.filter((block) => block.type !== 'credit' && !/^(Фото:|Иллюстрация создана с помощью ИИ)/.test(block.text?.trim() || ''));
-  body.innerHTML = `<p class="font-display text-2xl leading-relaxed">${esc(blocks[0]?.text || '')}</p><div class="mt-8 space-y-5 text-lg leading-relaxed text-foreground/85">${blocks.slice(1).map((block) => block.type === 'heading' ? `<h2>${esc(block.text)}</h2>` : block.type === 'quote' ? `<blockquote>${esc(block.text)}</blockquote>` : `<p>${esc(block.text)}</p>`).join('')}</div><h2 class="mt-10 text-3xl font-bold">Ключевые факты</h2><dl class="mt-6 grid grid-cols-2 gap-px border border-border bg-border">${[['Эпоха', place.era || '—'], ['Регион', place.region || '—'], ['Направление', categoryLabel(atlas, place)], ['Заданий', place.tasks]].map(([label, value]) => `<div class="bg-card p-5"><dt class="text-xs uppercase tracking-widest text-muted-foreground">${label}</dt><dd class="mt-1 font-display text-xl font-bold">${esc(value)}</dd></div>`).join('')}</dl>`;
+  body.innerHTML = `<p class="font-display text-2xl leading-relaxed">${esc(blocks[0]?.text || '')}</p><div class="mt-8 space-y-5 text-lg leading-relaxed text-foreground/85">${blocks.slice(1).map((block) => block.type === 'heading' ? `<h2 class="mt-10 font-display text-2xl font-bold leading-snug">${esc(block.text)}</h2>` : block.type === 'quote' ? `<blockquote>${esc(block.text)}</blockquote>` : `<p>${esc(block.text)}</p>`).join('')}</div><h2 class="mt-10 text-3xl font-bold">Ключевые факты</h2><dl class="mt-6 grid grid-cols-2 gap-px border border-border bg-border">${[['Эпоха', place.era || '—'], ['Регион', place.region || '—'], ['Направление', categoryLabel(atlas, place)], ['Заданий', place.tasks]].map(([label, value]) => `<div class="bg-card p-5"><dt class="text-xs uppercase tracking-widest text-muted-foreground">${label}</dt><dd class="mt-1 font-display text-xl font-bold">${esc(value)}</dd></div>`).join('')}</dl>`;
 }
 
 export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePendingResult }) {
   const slug = location.pathname.match(/place-([\w-]+)\.html$/)?.[1] || (location.pathname.endsWith('/article.html') ? new URLSearchParams(location.search).get('slug') : null);
   if (!slug) return;
-  const card = document.querySelector('main aside div.shadow-xl'); if (!card) return;
+  const card = document.querySelector('[data-atlas-quiz]'); if (!card) return;
   let atlas;
   try { atlas = await getAtlas(); }
   catch { card.innerHTML = '<p>Не удалось загрузить задания. Перезагрузите страницу.</p>'; return; }
@@ -137,10 +139,12 @@ export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePending
   const questions = atlas.quizzes[slug] || [];
   if (!questions.length) { card.textContent = 'Для этой статьи пока нет заданий.'; return; }
   let index = 0; let score = 0; let answers = [];
+  const focusQuestion = () => card.querySelector('h2')?.focus({ preventScroll: true });
   const draw = () => {
     if (index >= questions.length) {
-      card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Маршрут пройден</p><h2 class="mt-3 font-display text-2xl font-bold">Ваш результат: ${score} из ${questions.length}</h2><p class="mt-3" data-save-message>${token() ? 'Сохраняем результат…' : 'Войдите, чтобы сохранить результат и баллы.'}</p><button class="backend-primary-button" type="button">Пройти ещё раз</button>`;
+      card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Тест пройден</p><h2 tabindex="-1" class="mt-3 font-display text-2xl font-bold">Ваш результат: ${score} из ${questions.length}</h2><p class="mt-3" data-save-message>${token() ? 'Сохраняем результат…' : 'Войдите, чтобы сохранить результат и баллы.'}</p><button class="backend-primary-button" type="button">Пройти ещё раз</button>`;
       card.querySelector('button').onclick = () => { index = 0; score = 0; answers = []; draw(); };
+      focusQuestion();
       const result = { slug, version: place.quiz_version, answers, score };
       if (!token()) { queuePendingResult(result); return; }
       const message = card.querySelector('[data-save-message]');
@@ -153,7 +157,7 @@ export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePending
       return;
     }
     const question = questions[index]; const selected = new Set();
-    card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Задание · ${index + 1} из ${questions.length} · +${place.pts}</p><h2 class="mt-3 font-display text-xl font-bold leading-snug">${esc(question.q)}</h2>${question.multiple ? '<p>Выберите все правильные ответы</p>' : ''}<div class="backend-answer-list">${question.a.map((answer, choice) => `<button type="button" data-choice="${choice}" aria-pressed="false">${esc(answer)}</button>`).join('')}</div><div data-quiz-controls></div><p class="backend-quiz-feedback" role="status"></p>`;
+    card.innerHTML = `<p class="text-xs font-semibold uppercase tracking-widest text-primary">Вопрос · ${index + 1} из ${questions.length} · +${place.pts}</p><h2 tabindex="-1" class="mt-3 font-display text-xl font-bold leading-snug">${esc(question.q)}</h2>${question.multiple ? '<p>Выберите все правильные ответы</p>' : ''}<div class="backend-answer-list">${question.a.map((answer, choice) => `<button type="button" data-choice="${choice}" aria-pressed="false">${esc(answer)}</button>`).join('')}</div><div data-quiz-controls></div><p class="backend-quiz-feedback" role="status"></p>`;
     const controls = card.querySelector('[data-quiz-controls]'); const buttons = [...card.querySelectorAll('[data-choice]')];
     const submit = async (choices) => {
       buttons.forEach((button) => { button.disabled = true; }); controls.querySelector('button')?.setAttribute('disabled', '');
@@ -164,8 +168,9 @@ export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePending
         answers.push(answer); if (checked.correct) score += 1;
         buttons.forEach((button, choice) => { if (checked.correct_options.includes(choice)) button.classList.add('backend-answer-correct'); else if (choices.includes(choice)) button.classList.add('backend-answer-wrong'); });
         feedback.textContent = `${checked.correct ? 'Верно. ' : 'Неверно. '}${checked.explanation || ''}`;
-        controls.innerHTML = `<button class="backend-primary-button" type="button">${index + 1 === questions.length ? 'Завершить маршрут' : 'Следующий вопрос'}</button>`;
+        controls.innerHTML = `<button class="backend-primary-button" type="button">${index + 1 === questions.length ? 'Завершить тест' : 'Следующий вопрос'}</button>`;
         controls.querySelector('button').onclick = () => { index += 1; draw(); };
+        if (card.contains(document.activeElement)) controls.querySelector('button').focus({ preventScroll: true });
       } catch (error) {
         feedback.textContent = error.status === 409 ? error.message : 'Не удалось проверить ответ. Попробуйте ещё раз.';
         buttons.forEach((button) => { button.disabled = false; }); controls.querySelector('button')?.removeAttribute('disabled');
@@ -178,6 +183,12 @@ export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePending
       controls.querySelector('button').disabled = selected.size === 0;
     });
     if (question.multiple) { controls.innerHTML = '<button class="backend-primary-button" type="button" disabled>Проверить ответ</button>'; controls.querySelector('button').onclick = () => submit([...selected]); }
+
+    focusQuestion();
   };
-  draw();
+
+  const questionWord = { one: 'вопрос', few: 'вопроса', many: 'вопросов', other: 'вопроса' };
+  const count = new Intl.PluralRules('ru').select(questions.length);
+  card.innerHTML = `<h2 class="font-display text-xl font-bold">Тест по статье</h2><p class="mt-3 text-sm text-muted-foreground">${questions.length} ${questionWord[count]}</p><button class="backend-primary-button mt-4" type="button">Начать тест</button>`;
+  card.querySelector('button').onclick = draw;
 }

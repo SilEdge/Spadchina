@@ -192,7 +192,7 @@ func assistantArticle(ctx context.Context, slug string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return clipAssistantText(title, 200) + "\n" + clipAssistantText(publicArticleContent(content), 5000), nil
+	return clipAssistantText(title, 200) + "\n" + clipAssistantText(publicAtlasArticleContent(slug, content), 5000), nil
 }
 
 func clipAssistantText(text string, limit int) string {

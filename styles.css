@@ -1848,4 +1848,4 @@ main a[data-slug] { min-width: 0; overflow-wrap: anywhere; }
   .home-intro-actions { gap: 12px; }
 }
 .catalog-place-grid > .catalog-place-card { min-height: 300px; }
-.catalog-card-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.catalog-card-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }

@@ -171,10 +171,6 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	source := readAtlasData()
-	var seedContent map[string]struct {
-		Content json.RawMessage `json:"content"`
-	}
-	_ = json.Unmarshal(atlasContentJSON, &seedContent)
 	places := []map[string]interface{}{}
 	quizzes := map[string]interface{}{}
 	coords := map[string][]float64{}
@@ -189,12 +185,8 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		}
-		_ = json.Unmarshal([]byte(a.Content), &blocks)
-		articleContent := a.Content
-		if a.Slug == "brest" && isOriginalBrestSeed(a.Content) {
-			articleContent = string(seedContent[a.Slug].Content)
-			_ = json.Unmarshal([]byte(articleContent), &blocks)
-		}
+		articleContent := publicAtlasArticleContent(a.Slug, a.Content)
+		_ = json.Unmarshal([]byte(articleContent), &blocks)
 		lead := ""
 		for _, block := range blocks {
 			if !isVisualCredit(block.Type, block.Text) {
@@ -214,7 +206,7 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 		quizzes[a.Slug] = public
 		counts[a.Category]++
 		places = append(places, map[string]interface{}{"id": a.Slug, "article_id": a.ID, "name": a.Title, "cat": a.Category, "region": a.Region, "era": a.Era,
-			"lead": lead, "image": a.Image, "tasks": len(questions), "pts": a.Points, "content": publicArticleContent(articleContent), "quiz_version": quizVersion(a.Questions), "map_label": a.MapLabel})
+			"lead": lead, "image": a.Image, "tasks": len(questions), "pts": a.Points, "content": articleContent, "quiz_version": quizVersion(a.Questions), "map_label": a.MapLabel})
 		if a.Latitude != nil && a.Longitude != nil {
 			coords[a.Slug] = []float64{*a.Latitude, *a.Longitude}
 		}
