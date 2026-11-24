@@ -17,6 +17,7 @@ func TestAtlasAssistant(t *testing.T) {
 	t.Setenv("TURSO_DATABASE_URL", "")
 	t.Setenv("ADMIN_EMAIL", "admin@example.test")
 	t.Setenv("ADMIN_PASSWORD", "test-admin-password-123")
+	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	initDB()
@@ -24,6 +25,26 @@ func TestAtlasAssistant(t *testing.T) {
 
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/gemini" {
+			var body struct {
+				Contents []struct {
+					Role  string              `json:"role"`
+					Parts []map[string]string `json:"parts"`
+				} `json:"contents"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+				return
+			}
+			if r.Method != http.MethodPost || r.Header.Get("x-goog-api-key") != "test-gemini-key" ||
+				len(body.Contents) != 3 || len(body.Contents[0].Parts) != 1 || len(body.Contents[2].Parts) != 1 ||
+				!strings.Contains(body.Contents[0].Parts[0]["text"], "Справочный текст открытой статьи") ||
+				body.Contents[1].Role != "model" || body.Contents[2].Parts[0]["text"] != "А кто его построил?" {
+				t.Error("unexpected Gemini request")
+			}
+			fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"thought":true,"text":"hidden"},{"text":"Мирский замок связан с родом Ильиничей."}]}}]}`)
+			return
+		}
 		if r.URL.Path == "/claude" {
 			var body struct {
 				Model     string             `json:"model"`
@@ -70,7 +91,7 @@ func TestAtlasAssistant(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	server := httptest.NewServer(newAssistantHandler(upstream.Client(), upstream.URL, upstream.URL+"/claude"))
+	server := httptest.NewServer(newAssistantHandler(upstream.Client(), upstream.URL, upstream.URL+"/claude", upstream.URL+"/gemini"))
 	defer server.Close()
 	client := server.Client()
 	var availability map[string]bool
@@ -118,6 +139,17 @@ func TestAtlasAssistant(t *testing.T) {
 	requestJSON(t, client, http.MethodGet, server.URL, "", nil, http.StatusOK, &availability)
 	if !availability["enabled"] {
 		t.Fatal("assistant disabled with an Anthropic key")
+	}
+
+	t.Setenv("GEMINI_API_KEY", "test-gemini-key")
+	requestJSON(t, client, http.MethodPost, server.URL, token, question, http.StatusOK, &answer)
+	if answer["answer"] != "Мирский замок связан с родом Ильиничей." {
+		t.Fatalf("unexpected Gemini answer: %v", answer)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	requestJSON(t, client, http.MethodGet, server.URL, "", nil, http.StatusOK, &availability)
+	if !availability["enabled"] {
+		t.Fatal("assistant disabled with a Gemini key")
 	}
 
 	day := time.Now().UTC().Format(time.DateOnly)
