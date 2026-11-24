@@ -17,12 +17,13 @@ import (
 )
 
 const (
-	assistantEndpoint     = "https://api.openai.com/v1/responses"
-	claudeEndpoint        = "https://api.anthropic.com/v1/messages"
-	claudeModel           = "claude-haiku-5-5"
-	geminiEndpoint        = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent"
-	assistantDailyLimit   = 100
-	assistantInstructions = "Ты ИИ-помощник образовательного атласа «Спадчына» для школьников. " +
+	assistantEndpoint        = "https://api.openai.com/v1/responses"
+	claudeEndpoint           = "https://api.anthropic.com/v1/messages"
+	claudeModel              = "claude-haiku-5-5"
+	geminiEndpoint           = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent"
+	assistantDailyLimit      = 100
+	assistantGuestDailyLimit = 25
+	assistantInstructions    = "Ты ИИ-помощник образовательного атласа «Спадчына» для школьников. " +
 		"Помогай разобраться в географии, истории, природе, культуре и традициях Беларуси. " +
 		"Отвечай кратко и понятно на языке вопроса: по-русски или по-белорусски. " +
 		"Используй обычный текст, не выдумывай факты или ссылки. Если данных не хватает, скажи об этом. " +
@@ -70,7 +71,7 @@ func (q *assistantQuestion) valid() bool {
 }
 
 func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint, googleEndpoint string) http.HandlerFunc {
-	ask := authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	ask := func(w http.ResponseWriter, r *http.Request) {
 		geminiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 		claudeKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 		key := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
@@ -92,13 +93,18 @@ func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint, googl
 			respondError(w, "Помощник временно недоступен. Попробуйте позже.", http.StatusServiceUnavailable)
 			return
 		}
-		allowed, err := reserveAssistantRequest(r.Context(), time.Now())
+		guest := userFromContext(r.Context()).UserID == 0
+		allowed, err := reserveAssistantRequest(r.Context(), time.Now(), guest)
 		if err != nil {
 			log.Print("atlas assistant: could not reserve a request")
 			respondError(w, "Помощник временно недоступен. Попробуйте позже.", http.StatusServiceUnavailable)
 			return
 		}
 		if !allowed {
+			if guest {
+				respondError(w, "Лимит вопросов без входа исчерпан. Войдите или попробуйте завтра.", http.StatusTooManyRequests)
+				return
+			}
 			respondError(w, "Дневной лимит вопросов исчерпан. Попробуйте завтра.", http.StatusTooManyRequests)
 			return
 		}
@@ -121,7 +127,8 @@ func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint, googl
 			return
 		}
 		respondJSON(w, map[string]string{"answer": answer}, http.StatusOK)
-	})
+	}
+	authenticatedAsk := authMiddleware(ask)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -129,6 +136,10 @@ func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint, googl
 		case http.MethodGet:
 			respondJSON(w, map[string]bool{"enabled": strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" || strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""}, http.StatusOK)
 		case http.MethodPost:
+			if r.Header.Get("Authorization") != "" {
+				authenticatedAsk(w, r)
+				return
+			}
 			ask(w, r)
 		default:
 			w.Header().Set("Allow", "GET, POST, OPTIONS")
@@ -138,8 +149,26 @@ func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint, googl
 }
 
 // Reserve a call atomically across server instances, including failed provider calls.
-func reserveAssistantRequest(ctx context.Context, now time.Time) (bool, error) {
-	key := "atlas_assistant_usage:" + now.UTC().Format(time.DateOnly)
+func reserveAssistantRequest(ctx context.Context, now time.Time, guest bool) (bool, error) {
+	day := now.UTC().Format(time.DateOnly)
+	key := "atlas_assistant_usage:" + day
+	if guest {
+		guestKey := "atlas_assistant_guest_usage:" + day
+		result, err := db.ExecContext(ctx, `INSERT INTO app_settings (key, value)
+			SELECT key, '1' FROM (SELECT ? AS key UNION ALL SELECT ?)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM app_settings
+				WHERE (key = ? AND CAST(value AS INTEGER) >= ?)
+				   OR (key = ? AND CAST(value AS INTEGER) >= ?)
+			)
+			ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`,
+			key, guestKey, key, assistantDailyLimit, guestKey, assistantGuestDailyLimit)
+		if err != nil {
+			return false, err
+		}
+		updated, err := result.RowsAffected()
+		return updated == 2, err
+	}
 	result, err := db.ExecContext(ctx, `INSERT INTO app_settings (key, value) VALUES (?, '1')
 		ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1
 		WHERE CAST(value AS INTEGER) < ?`, key, assistantDailyLimit)

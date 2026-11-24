@@ -104,7 +104,8 @@ func TestAtlasAssistant(t *testing.T) {
 		{Role: "assistant", Content: "Это Мирский замок."},
 		{Role: "user", Content: " А кто его построил? "},
 	}}
-	requestJSON(t, client, http.MethodPost, server.URL, "", question, http.StatusUnauthorized, nil)
+	requestJSON(t, client, http.MethodPost, server.URL, "invalid-token", question, http.StatusUnauthorized, nil)
+	requestJSON(t, client, http.MethodPost, server.URL, "", question, http.StatusServiceUnavailable, nil)
 	token, err := generateToken(User{ID: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -153,8 +154,21 @@ func TestAtlasAssistant(t *testing.T) {
 	}
 
 	day := time.Now().UTC().Format(time.DateOnly)
+	requestJSON(t, client, http.MethodPost, server.URL, "", question, http.StatusOK, &answer)
+	if answer["answer"] != "Мирский замок связан с родом Ильиничей." {
+		t.Fatalf("unexpected guest answer: %v", answer)
+	}
+	guestKey := "atlas_assistant_guest_usage:" + day
+	if _, err := db.Exec("UPDATE app_settings SET value = ? WHERE key = ?", assistantGuestDailyLimit-1, guestKey); err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, client, http.MethodPost, server.URL, "", question, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodPost, server.URL, "", question, http.StatusTooManyRequests, nil)
+	requestJSON(t, client, http.MethodPost, server.URL, token, question, http.StatusOK, nil)
+
 	if _, err := db.Exec("UPDATE app_settings SET value = ? WHERE key = ?", assistantDailyLimit, "atlas_assistant_usage:"+day); err != nil {
 		t.Fatal(err)
 	}
 	requestJSON(t, client, http.MethodPost, server.URL, token, question, http.StatusTooManyRequests, nil)
+	requestJSON(t, client, http.MethodPost, server.URL, "", question, http.StatusTooManyRequests, nil)
 }
