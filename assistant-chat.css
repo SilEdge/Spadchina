@@ -336,14 +336,17 @@
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  margin-top: 0.5rem;
   color: #496272;
   font-size: 0.75rem;
 }
 
+.atlas-assistant__status:not(:empty),
+.atlas-assistant__action {
+  margin-top: 0.5rem;
+}
+
 .atlas-assistant__status {
   flex: 1;
-  margin: 0;
 }
 
 .atlas-assistant__action {
