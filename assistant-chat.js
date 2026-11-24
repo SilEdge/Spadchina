@@ -145,7 +145,7 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
     } else if (availability === true) {
       setStatus('Поиск по атласу доступен. Войдите для ответов ИИ.', 'Войти');
     } else {
-      setStatus('Поиск по атласу · ИИ пока не подключён');
+      setStatus('');
     }
   }
 
@@ -157,7 +157,7 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
     }
 
     availability = 'loading';
-    setStatus('Поиск по атласу');
+    setStatus('');
     try {
       const { enabled } = await api('/atlas/assistant');
       availability = typeof enabled === 'boolean' ? enabled : undefined;
