@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -51,7 +52,9 @@ func TestPublishingAndVerifiedScoring(t *testing.T) {
 	for _, p := range atlas.Places {
 		if p.ID == slug {
 			version = p.Version
-			if p.Content != article.Content || p.Name != article.Title {
+			var got, want any
+			if json.Unmarshal([]byte(p.Content), &got) != nil || json.Unmarshal([]byte(article.Content), &want) != nil ||
+				!reflect.DeepEqual(got, want) || p.Name != article.Title {
 				t.Fatal("publication content mismatch")
 			}
 		}
@@ -109,7 +112,9 @@ func TestPublishingAndVerifiedScoring(t *testing.T) {
 	article.Content = `[{"type":"lead","text":"Новый текст"}]`
 	requestJSON(t, client, "PUT", fmt.Sprintf("%s/api/admin/articles/%d", server.URL, created.ID), admin.Token, article, 200, nil)
 	requestJSON(t, client, "GET", fmt.Sprintf("%s/api/articles/%d", server.URL, created.ID), "", nil, 200, &public)
-	if public.Title != article.Title || public.Content != article.Content {
+	var got, want any
+	if json.Unmarshal([]byte(public.Content), &got) != nil || json.Unmarshal([]byte(article.Content), &want) != nil ||
+		!reflect.DeepEqual(got, want) || public.Title != article.Title {
 		t.Fatal("editing did not reach public article")
 	}
 	requestJSON(t, client, "DELETE", fmt.Sprintf("%s/api/admin/articles/%d", server.URL, created.ID), admin.Token, nil, 200, nil)
@@ -131,4 +136,24 @@ func TestPublishingAndVerifiedScoring(t *testing.T) {
 	requestJSON(t, client, "POST", server.URL+"/api/admin/password", admin.Token, map[string]string{"current_password": "test-admin-password-123", "password": "111111"}, 200, nil)
 	requestJSON(t, client, "POST", server.URL+"/api/login", "", LoginRequest{Email: "admin@example.test", Password: "test-admin-password-123"}, http.StatusUnauthorized, nil)
 	requestJSON(t, client, "POST", server.URL+"/api/login", "", LoginRequest{Email: "admin@example.test", Password: "111111"}, 200, nil)
+}
+
+func TestAtlasReadingUsesPublishedSeed(t *testing.T) {
+	for _, place := range readAtlasData().Places {
+		entry, ok := atlasReading[place.ID]
+		if !ok || len(entry.extended) <= len(entry.seed) {
+			t.Errorf("missing expanded reading for %s", place.ID)
+			continue
+		}
+		if got := publicAtlasArticleContent(place.ID, entry.seed); got != entry.extended {
+			t.Errorf("seed was not expanded for %s", place.ID)
+		}
+		if got := publicAtlasArticleContent(place.ID, entry.lead); got != entry.extended {
+			t.Errorf("legacy lead was not expanded for %s", place.ID)
+		}
+	}
+	edited := `[{"text":"Текст редактора","type":"lead"}]`
+	if got := publicAtlasArticleContent("braslav", edited); got != edited {
+		t.Errorf("editor content was replaced: %s", got)
+	}
 }

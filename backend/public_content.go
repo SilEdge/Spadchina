@@ -23,7 +23,7 @@ func scanArticle(row interface{ Scan(...interface{}) error }) (Article, error) {
 }
 
 func hideArticleAnswers(a *Article) {
-	a.Content = publicArticleContent(a.Content)
+	a.Content = publicAtlasArticleContent(a.Slug, a.Content)
 	var questions []DuelQuestion
 	if json.Unmarshal([]byte(a.Questions), &questions) == nil {
 		for i := range questions {
