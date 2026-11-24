@@ -18,6 +18,8 @@ import (
 
 const (
 	assistantEndpoint     = "https://api.openai.com/v1/responses"
+	claudeEndpoint        = "https://api.anthropic.com/v1/messages"
+	claudeModel           = "claude-haiku-5-5"
 	assistantDailyLimit   = 100
 	assistantInstructions = "Ты ИИ-помощник образовательного атласа «Спадчына» для школьников. " +
 		"Помогай разобраться в географии, истории, природе, культуре и традициях Беларуси. " +
@@ -66,10 +68,11 @@ func (q *assistantQuestion) valid() bool {
 	return true
 }
 
-func newAssistantHandler(client *http.Client, endpoint string) http.HandlerFunc {
+func newAssistantHandler(client *http.Client, endpoint, anthropicEndpoint string) http.HandlerFunc {
 	ask := authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		claudeKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 		key := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-		if key == "" {
+		if claudeKey == "" && key == "" {
 			respondError(w, "ИИ-помощник пока не подключён.", http.StatusServiceUnavailable)
 			return
 		}
@@ -98,11 +101,16 @@ func newAssistantHandler(client *http.Client, endpoint string) http.HandlerFunc 
 			return
 		}
 
-		model := strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
-		if model == "" {
-			model = "gpt-4.1-mini"
+		var answer string
+		if claudeKey != "" {
+			answer, err = requestClaudeAnswer(r.Context(), client, anthropicEndpoint, claudeKey, contextText, question.Messages)
+		} else {
+			model := strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+			if model == "" {
+				model = "gpt-4.1-mini"
+			}
+			answer, err = requestAssistantAnswer(r.Context(), client, endpoint, key, model, contextText, question.Messages)
 		}
-		answer, err := requestAssistantAnswer(r.Context(), client, endpoint, key, model, contextText, question.Messages)
 		if err != nil {
 			log.Print("atlas assistant: ", err)
 			respondError(w, "Не удалось получить ответ. Попробуйте ещё раз чуть позже.", http.StatusBadGateway)
@@ -115,7 +123,7 @@ func newAssistantHandler(client *http.Client, endpoint string) http.HandlerFunc 
 		w.Header().Set("Cache-Control", "no-store")
 		switch r.Method {
 		case http.MethodGet:
-			respondJSON(w, map[string]bool{"enabled": strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""}, http.StatusOK)
+			respondJSON(w, map[string]bool{"enabled": strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" || strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""}, http.StatusOK)
 		case http.MethodPost:
 			ask(w, r)
 		default:
@@ -167,28 +175,6 @@ func requestAssistantAnswer(ctx context.Context, client *http.Client, endpoint, 
 	if article != "" {
 		input = append([]assistantMessage{{Role: "user", Content: "Справочный текст открытой статьи атласа:\n" + article}}, messages...)
 	}
-	body, err := json.Marshal(map[string]any{
-		"model": model, "instructions": assistantInstructions, "input": input,
-		"store": false, "max_output_tokens": 700,
-	})
-	if err != nil {
-		return "", errors.New("could not encode provider request")
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", errors.New("could not create provider request")
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", errors.New("provider connection failed")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
-	}
 
 	var data struct {
 		Output []struct {
@@ -200,8 +186,13 @@ func requestAssistantAnswer(ctx context.Context, client *http.Client, endpoint, 
 			} `json:"content"`
 		} `json:"output"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(&data); err != nil {
-		return "", errors.New("invalid provider response")
+	payload := map[string]any{
+		"model": model, "instructions": assistantInstructions, "input": input,
+		"store": false, "max_output_tokens": 700,
+	}
+	headers := map[string]string{"Authorization": "Bearer " + key}
+	if err := callAssistantProvider(ctx, client, endpoint, headers, payload, &data); err != nil {
+		return "", err
 	}
 	var parts []string
 	for _, item := range data.Output {
@@ -217,9 +208,73 @@ func requestAssistantAnswer(ctx context.Context, client *http.Client, endpoint, 
 			}
 		}
 	}
+	return joinAssistantAnswer(parts)
+}
+
+func joinAssistantAnswer(parts []string) (string, error) {
 	answer := strings.TrimSpace(strings.Join(parts, "\n"))
 	if answer == "" {
 		return "", errors.New("provider returned an empty answer")
 	}
 	return clipAssistantText(answer, 2400), nil
+}
+
+func requestClaudeAnswer(ctx context.Context, client *http.Client, endpoint, key, article string, messages []assistantMessage) (string, error) {
+	input := messages
+	if article != "" {
+		input = append([]assistantMessage(nil), messages...)
+		input[0].Content = "Справочный текст открытой статьи атласа:\n" + article + "\n\nВопрос пользователя:\n" + input[0].Content
+	}
+	payload := map[string]any{
+		"model": claudeModel, "system": assistantInstructions,
+		"messages": input, "max_tokens": 1200,
+		"output_config": map[string]string{"effort": "low"},
+	}
+	headers := map[string]string{
+		"Authorization":     "Bearer " + key,
+		"anthropic-version": "2026-10-21",
+	}
+	var data struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := callAssistantProvider(ctx, client, endpoint, headers, payload, &data); err != nil {
+		return "", err
+	}
+	var parts []string
+	for _, block := range data.Content {
+		if block.Type == "text" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return joinAssistantAnswer(parts)
+}
+
+func callAssistantProvider(ctx context.Context, client *http.Client, endpoint string, headers map[string]string, payload map[string]any, result any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return errors.New("could not encode provider request")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return errors.New("could not create provider request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.New("provider connection failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(result); err != nil {
+		return errors.New("invalid provider response")
+	}
+	return nil
 }
