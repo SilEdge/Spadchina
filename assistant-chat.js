@@ -1,9 +1,10 @@
+import { faArrowUp, faRobot, faWandMagicSparkles, faXmark } from '@fortawesome/free-solid-svg-icons';
 import './assistant-chat.css';
 
-const sparkles = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-  <path d="M9.5 2.5 11.7 8.3 17.5 10.5 11.7 12.7 9.5 18.5 7.3 12.7 1.5 10.5 7.3 8.3 9.5 2.5Z"/>
-  <path d="M19 13.5v8m-4-4h8"/>
-</svg>`;
+function renderIcon({ iconName, icon: [width, height, , , path] }) {
+  const paths = [].concat(path).map((value) => `<path d="${value}"/>`).join('');
+  return `<svg data-icon="${iconName}" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="currentColor" aria-hidden="true">${paths}</svg>`;
+}
 
 function currentPlace() {
   const page = location.pathname.split('/').pop();
@@ -18,33 +19,42 @@ export function installAssistantChat({ api, token, openAuthModal }) {
   widget.className = 'atlas-assistant';
   widget.innerHTML = `
     <button class="atlas-assistant__launcher" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="atlas-assistant-chat">
-      ${sparkles}
-      ИИ-помощник
+      ${renderIcon(faWandMagicSparkles)}
+      <span lang="en">Spadchin</span>
     </button>
-    <section class="atlas-assistant__panel" id="atlas-assistant-chat" role="dialog" aria-labelledby="atlas-assistant-title" hidden>
-      <header class="atlas-assistant__header">
-        <span class="atlas-assistant__avatar">${sparkles}</span>
-        <h2 id="atlas-assistant-title">ИИ-помощник</h2>
+    <section class="atlas-assistant__panel" id="atlas-assistant-chat" role="dialog" aria-labelledby="atlas-assistant-title" inert>
+      <div class="atlas-assistant__hero">
+        <span class="atlas-assistant__avatar">${renderIcon(faRobot)}</span>
+        <div class="atlas-assistant__title">
+          <h2 id="atlas-assistant-title" lang="en">Spadchin</h2>
+          <p>Помощник по атласу Беларуси</p>
+        </div>
         <button class="atlas-assistant__close" type="button" aria-label="Свернуть чат">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-            <path d="M6 6l12 12M18 6 6 18"/>
-          </svg>
+          ${renderIcon(faXmark)}
         </button>
-      </header>
+      </div>
       <div class="atlas-assistant__messages" role="log" aria-label="Переписка" tabindex="0">
-        <p class="atlas-assistant__message">Привет! Помогу узнать больше о местах, истории и традициях Беларуси.</p>
+        <div class="atlas-assistant__greeting">
+          <div>
+            <p class="atlas-assistant__message">Привет! Куда отправимся? Спроси про озёра, замки или традиции Беларуси.</p>
+          </div>
+        </div>
+        <div class="atlas-assistant__typing" hidden>
+          <span class="atlas-assistant__sr-only">Spadchin печатает…</span>
+          <span class="atlas-assistant__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
       </div>
       <div class="atlas-assistant__footer">
-        <form class="atlas-assistant__composer" hidden>
+        <form class="atlas-assistant__composer">
           <input name="question" type="text" aria-label="Ваш вопрос" placeholder="Напишите вопрос…" maxlength="600" autocomplete="off" required>
           <button class="atlas-assistant__send" type="submit" aria-label="Отправить вопрос" disabled>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 19V5m-5 5 5-5 5 5"/>
-            </svg>
+            ${renderIcon(faArrowUp)}
           </button>
         </form>
-        <p class="atlas-assistant__status" role="status"></p>
-        <button class="atlas-assistant__action" type="button" hidden></button>
+        <div class="atlas-assistant__feedback">
+          <p class="atlas-assistant__status" role="status"></p>
+          <button class="atlas-assistant__action" type="button" hidden></button>
+        </div>
       </div>
     </section>
   `;
@@ -53,6 +63,8 @@ export function installAssistantChat({ api, token, openAuthModal }) {
   const panel = widget.querySelector('.atlas-assistant__panel');
   const closeButton = widget.querySelector('.atlas-assistant__close');
   const log = widget.querySelector('.atlas-assistant__messages');
+  const greeting = widget.querySelector('.atlas-assistant__greeting');
+  const typing = widget.querySelector('.atlas-assistant__typing');
   const form = widget.querySelector('form');
   const input = form.elements.question;
   const send = widget.querySelector('.atlas-assistant__send');
@@ -76,8 +88,10 @@ export function installAssistantChat({ api, token, openAuthModal }) {
   }
 
   function setOpen(open) {
-    panel.hidden = !open;
-    launcher.hidden = open;
+    if (open) widget.classList.add('has-opened');
+    launcher.inert = open;
+    panel.inert = !open;
+    widget.classList.toggle('is-open', open);
     launcher.setAttribute('aria-expanded', String(open));
     (open ? closeButton : launcher).focus({ preventScroll: true });
     if (open) scrollToLatest();
@@ -88,16 +102,32 @@ export function installAssistantChat({ api, token, openAuthModal }) {
     message.className = 'atlas-assistant__message';
     message.dataset.role = role;
     message.textContent = text;
-    log.append(message);
+    log.insertBefore(message, typing);
     scrollToLatest();
     return message;
+  }
+
+  function updateComposer() {
+    input.readOnly = pending;
+    send.disabled = pending || availability !== true || !input.value.trim();
+  }
+
+  function showAvailability() {
+    if (availability === true) {
+      const needsLogin = signInRequired || !token();
+      setStatus(needsLogin ? 'Войдите, чтобы отправить вопрос.' : tip, needsLogin ? 'Войти' : '');
+    } else if (availability === false) {
+      setStatus('Можно набрать вопрос. Отправка станет доступна после подключения ИИ.');
+    } else {
+      setStatus('Не удалось проверить подключение.', 'Повторить');
+    }
+    updateComposer();
   }
 
   async function updateAvailability() {
     if (availability === 'loading') return;
     if (availability === true) {
-      form.hidden = signInRequired || !token();
-      setStatus(form.hidden ? 'Войдите, чтобы задать вопрос.' : tip, form.hidden ? 'Войти' : '');
+      showAvailability();
       return;
     }
 
@@ -105,22 +135,21 @@ export function installAssistantChat({ api, token, openAuthModal }) {
     setStatus('Проверяем подключение…');
     try {
       const { enabled } = await api('/atlas/assistant');
-      if (typeof enabled !== 'boolean') throw new Error('Unexpected assistant status');
-      availability = enabled;
-      if (enabled) {
-        await updateAvailability();
-      } else {
-        setStatus('ИИ-помощник пока не подключён.');
-      }
+      availability = typeof enabled === 'boolean' ? enabled : undefined;
     } catch {
       availability = undefined;
-      setStatus('Не удалось проверить подключение.', 'Повторить');
     }
+    showAvailability();
   }
 
-  function updateSend() {
-    input.readOnly = pending;
-    send.disabled = pending || !input.value.trim();
+  function dismissGreeting() {
+    greeting.classList.add('is-dismissed');
+    greeting.setAttribute('aria-hidden', 'true');
+  }
+
+  function askToSignIn() {
+    setOpen(false);
+    openAuthModal();
   }
 
   launcher.addEventListener('click', () => {
@@ -136,26 +165,35 @@ export function installAssistantChat({ api, token, openAuthModal }) {
   });
   action.addEventListener('click', () => {
     if (availability === true) {
-      setOpen(false);
-      openAuthModal();
+      askToSignIn();
     } else {
       closeButton.focus();
       void updateAvailability();
     }
   });
-  input.addEventListener('input', updateSend);
+  input.addEventListener('input', () => {
+    if (input.value.trim()) dismissGreeting();
+    updateComposer();
+  });
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const question = input.value.trim();
-    if (pending || !question) return;
+    if (pending || availability !== true || !question) return;
+    if (signInRequired || !token()) {
+      askToSignIn();
+      return;
+    }
 
+    dismissGreeting();
     const messages = [...history, { role: 'user', content: question }];
     const bubble = appendMessage('user', question);
     input.value = '';
     input.focus({ preventScroll: true });
     pending = true;
-    updateSend();
-    setStatus('Готовим ответ…');
+    updateComposer();
+    setStatus(tip);
+    typing.hidden = false;
+    scrollToLatest();
 
     try {
       const { answer } = await api('/atlas/assistant', {
@@ -164,22 +202,22 @@ export function installAssistantChat({ api, token, openAuthModal }) {
       });
       if (typeof answer !== 'string' || !answer.trim()) throw new Error('Помощник не вернул ответ. Попробуйте ещё раз.');
       history = [...messages, { role: 'assistant', content: answer }].slice(-6);
+      typing.hidden = true;
       appendMessage('assistant', answer);
-      setStatus(tip);
     } catch (error) {
       bubble.remove();
       input.value = question;
       if (error.status === 401) {
         signInRequired = true;
-        form.hidden = true;
         setStatus('Войдите заново, чтобы продолжить.', 'Войти');
-        if (!panel.hidden) action.focus();
+        if (!panel.inert) action.focus();
       } else {
         setStatus(error.message);
       }
     } finally {
+      typing.hidden = true;
       pending = false;
-      updateSend();
+      updateComposer();
     }
   });
 
