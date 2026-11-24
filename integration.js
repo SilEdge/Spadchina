@@ -711,5 +711,5 @@ async function initialize() {
   await Promise.allSettled([installHomeAtlas({ getAtlas, esc }), installCatalog({ getAtlas, api, esc, status, token }), installPlaceQuiz({ getAtlas, api, esc, token, queuePendingResult }), installLeaderboard(), installProfile(), installIdeas(), installShop(), installChat(), installDuelPage(), installTeamBattles()]);
 }
 
-installAssistantChat({ api, token, openAuthModal });
+installAssistantChat({ api, getAtlas, token, openAuthModal });
 initialize();

@@ -1,4 +1,5 @@
-import { faArrowUp, faRobot, faWandMagicSparkles, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faChevronDown, faCommentDots } from '@fortawesome/free-solid-svg-icons';
+import { placeURL } from './public-atlas.js';
 import './assistant-chat.css';
 
 function renderIcon({ iconName, icon: [width, height, , , path] }) {
@@ -14,23 +15,48 @@ function currentPlace() {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug || '') && slug.length <= 80 ? slug : '';
 }
 
-export function installAssistantChat({ api, token, openAuthModal }) {
+const ignoredWords = new Set([
+  'что', 'это', 'как', 'кто', 'где', 'когда', 'какие', 'какой', 'какая', 'чем', 'почему',
+  'про', 'расскажи', 'расскажите', 'можно', 'найди', 'узнать', 'больше', 'беларуси',
+  'што', 'хто', 'дзе', 'калі', 'пра', 'раскажы', 'беларусь',
+]);
+
+function searchWords(text) {
+  return String(text || '').toLocaleLowerCase('ru').replaceAll('ё', 'е').match(/[\p{L}\p{N}]{3,}/gu) || [];
+}
+
+function findAtlasPlaces(atlas, question) {
+  const terms = [...new Set(searchWords(question).filter((word) => !ignoredWords.has(word)))];
+  const matches = (word, term) => word === term || (term.length > 4 && word.startsWith(term.slice(0, -2)));
+  return atlas.places.map((place) => {
+    const title = searchWords(place.name);
+    const context = searchWords([place.region, place.lead, atlas.categories?.find((category) => category.id === place.cat)?.name].join(' '));
+    const score = terms.reduce((total, term) => total + (title.some((word) => matches(word, term)) ? 4 :
+      Number(context.some((word) => matches(word, term)))), 0);
+    return { place, score };
+  }).filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map(({ place }) => place);
+}
+
+export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
   const widget = document.createElement('div');
   widget.className = 'atlas-assistant';
   widget.innerHTML = `
     <button class="atlas-assistant__launcher" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="atlas-assistant-chat">
-      ${renderIcon(faWandMagicSparkles)}
+      ${renderIcon(faCommentDots)}
       <span lang="en">Spadchin</span>
     </button>
     <section class="atlas-assistant__panel" id="atlas-assistant-chat" role="dialog" aria-labelledby="atlas-assistant-title" inert>
       <div class="atlas-assistant__hero">
-        <span class="atlas-assistant__avatar">${renderIcon(faRobot)}</span>
+        <span class="atlas-assistant__avatar"><img src="${import.meta.env.BASE_URL}assets/b29a1d34f6.png" width="40" height="40" alt=""></span>
         <div class="atlas-assistant__title">
           <h2 id="atlas-assistant-title" lang="en">Spadchin</h2>
           <p>Помощник по атласу Беларуси</p>
         </div>
         <button class="atlas-assistant__close" type="button" aria-label="Свернуть чат">
-          ${renderIcon(faXmark)}
+          ${renderIcon(faChevronDown)}
         </button>
       </div>
       <div class="atlas-assistant__messages" role="log" aria-label="Переписка" tabindex="0">
@@ -46,9 +72,9 @@ export function installAssistantChat({ api, token, openAuthModal }) {
       </div>
       <div class="atlas-assistant__footer">
         <form class="atlas-assistant__composer">
-          <input name="question" type="text" aria-label="Ваш вопрос" placeholder="Напишите вопрос…" maxlength="600" autocomplete="off" required>
+          <textarea name="question" aria-label="Ваш вопрос" placeholder="Напишите вопрос…" rows="2" maxlength="600" required></textarea>
           <button class="atlas-assistant__send" type="submit" aria-label="Отправить вопрос" disabled>
-            ${renderIcon(faArrowUp)}
+            ${renderIcon(faArrowRight)}
           </button>
         </form>
         <div class="atlas-assistant__feedback">
@@ -97,11 +123,12 @@ export function installAssistantChat({ api, token, openAuthModal }) {
     if (open) scrollToLatest();
   }
 
-  function appendMessage(role, text) {
-    const message = document.createElement('p');
+  function appendMessage(role, text, details) {
+    const message = document.createElement(details ? 'div' : 'p');
     message.className = 'atlas-assistant__message';
     message.dataset.role = role;
     message.textContent = text;
+    if (details) message.append(details);
     log.insertBefore(message, typing);
     scrollToLatest();
     return message;
@@ -109,19 +136,17 @@ export function installAssistantChat({ api, token, openAuthModal }) {
 
   function updateComposer() {
     input.readOnly = pending;
-    send.disabled = pending || availability !== true || !input.value.trim();
+    send.disabled = pending || !input.value.trim();
   }
 
   function showAvailability() {
-    if (availability === true) {
-      const needsLogin = signInRequired || !token();
-      setStatus(needsLogin ? 'Войдите, чтобы отправить вопрос.' : tip, needsLogin ? 'Войти' : '');
-    } else if (availability === false) {
-      setStatus('Можно набрать вопрос. Отправка станет доступна после подключения ИИ.');
+    if (availability === true && !signInRequired && token()) {
+      setStatus(tip);
+    } else if (availability === true) {
+      setStatus('Поиск по атласу доступен. Войдите для ответов ИИ.', 'Войти');
     } else {
-      setStatus('Не удалось проверить подключение.', 'Повторить');
+      setStatus('Поиск по атласу · ИИ пока не подключён');
     }
-    updateComposer();
   }
 
   async function updateAvailability() {
@@ -132,7 +157,7 @@ export function installAssistantChat({ api, token, openAuthModal }) {
     }
 
     availability = 'loading';
-    setStatus('Проверяем подключение…');
+    setStatus('Поиск по атласу');
     try {
       const { enabled } = await api('/atlas/assistant');
       availability = typeof enabled === 'boolean' ? enabled : undefined;
@@ -163,26 +188,20 @@ export function installAssistantChat({ api, token, openAuthModal }) {
       setOpen(false);
     }
   });
-  action.addEventListener('click', () => {
-    if (availability === true) {
-      askToSignIn();
-    } else {
-      closeButton.focus();
-      void updateAvailability();
-    }
-  });
+  action.addEventListener('click', askToSignIn);
   input.addEventListener('input', () => {
     if (input.value.trim()) dismissGreeting();
     updateComposer();
   });
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    if (!send.disabled) form.requestSubmit();
+  });
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const question = input.value.trim();
-    if (pending || availability !== true || !question) return;
-    if (signInRequired || !token()) {
-      askToSignIn();
-      return;
-    }
+    if (pending || !question) return;
 
     dismissGreeting();
     const messages = [...history, { role: 'user', content: question }];
@@ -191,19 +210,44 @@ export function installAssistantChat({ api, token, openAuthModal }) {
     input.focus({ preventScroll: true });
     pending = true;
     updateComposer();
-    setStatus(tip);
+    const useAI = availability === true && !signInRequired && token();
+    showAvailability();
+    typing.firstElementChild.textContent = useAI ? 'Spadchin печатает…' : 'Поиск по атласу…';
     typing.hidden = false;
     scrollToLatest();
 
     try {
-      const { answer } = await api('/atlas/assistant', {
-        method: 'POST',
-        body: JSON.stringify({ messages, slug }),
-      });
-      if (typeof answer !== 'string' || !answer.trim()) throw new Error('Помощник не вернул ответ. Попробуйте ещё раз.');
-      history = [...messages, { role: 'assistant', content: answer }].slice(-6);
-      typing.hidden = true;
-      appendMessage('assistant', answer);
+      if (useAI) {
+        const { answer } = await api('/atlas/assistant', {
+          method: 'POST',
+          body: JSON.stringify({ messages, slug }),
+        });
+        if (typeof answer !== 'string' || !answer.trim()) throw new Error('Помощник не вернул ответ. Попробуйте ещё раз.');
+        history = [...messages, { role: 'assistant', content: answer }].slice(-6);
+        typing.hidden = true;
+        appendMessage('assistant', answer);
+      } else {
+        const places = findAtlasPlaces(await getAtlas(), question);
+        typing.hidden = true;
+        const list = document.createElement('ul');
+        list.className = 'atlas-assistant__results';
+        for (const place of places.length ? places : [{ name: 'Открыть каталог' }]) {
+          const item = document.createElement('li');
+          const link = document.createElement('a');
+          link.href = place.id ? placeURL(place) : 'catalog.html';
+          link.textContent = place.name;
+          item.append(link);
+          if (place.lead) {
+            const description = document.createElement('small');
+            description.textContent = place.lead;
+            item.append(description);
+          }
+          list.append(item);
+        }
+        appendMessage('assistant', places.length
+          ? 'Вот что нашлось в атласе.'
+          : 'По этому вопросу ничего не нашлось. Попробуйте указать название места.', list);
+      }
     } catch (error) {
       bubble.remove();
       input.value = question;
