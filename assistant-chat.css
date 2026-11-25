@@ -94,6 +94,16 @@
   transform: none;
 }
 
+@media (max-width: 40rem) {
+  .atlas-assistant__panel {
+    position: fixed;
+    inset: var(--assistant-top) var(--assistant-right) var(--assistant-bottom) var(--assistant-left);
+    width: min(28rem, calc(100% - var(--assistant-left) - var(--assistant-right)));
+    margin: auto;
+    transform-origin: center;
+  }
+}
+
 .atlas-assistant__hero {
   position: relative;
   display: flex;
