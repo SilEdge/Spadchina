@@ -1,6 +1,6 @@
-// Retrying reads is safe; writes must never be repeated automatically.
-export async function requestJSON(url, options = {}) {
-  const attempts = (options.method || 'GET').toUpperCase() === 'GET' ? 3 : 1;
+// Retry reads, including read-only endpoints that accept a POST body.
+export async function requestJSON(url, { retryRead = false, ...options } = {}) {
+  const attempts = retryRead || (options.method || 'GET').toUpperCase() === 'GET' ? 3 : 1;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     let response;
     try { response = await fetch(url, options); }

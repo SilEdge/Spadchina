@@ -164,9 +164,9 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "method not allowed", 405)
 		return
 	}
-	rows, err := db.Query(articleSelect + " WHERE ap.published=1 ORDER BY a.id")
+	rows, err := db.QueryContext(r.Context(), articleSelect+" WHERE ap.published=1 ORDER BY a.id")
 	if err != nil {
-		respondError(w, "db error", 500)
+		respondError(w, "db error", http.StatusServiceUnavailable)
 		return
 	}
 	defer rows.Close()
@@ -178,7 +178,7 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		a, err := scanArticle(rows)
 		if err != nil {
-			respondError(w, "db error", 500)
+			respondError(w, "db error", http.StatusServiceUnavailable)
 			return
 		}
 		var blocks []struct {
@@ -212,7 +212,7 @@ func getAtlasHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if rows.Err() != nil {
-		respondError(w, "db error", 500)
+		respondError(w, "db error", http.StatusServiceUnavailable)
 		return
 	}
 	for i := range source.Categories {
@@ -237,8 +237,8 @@ func saveAtlasResultHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int
-	if db.QueryRow("SELECT article_id FROM atlas_places WHERE published=1 AND slug=?", req.Slug).Scan(&id) != nil {
-		respondError(w, "place not found", 404)
+	if err := db.QueryRowContext(r.Context(), "SELECT article_id FROM atlas_places WHERE published=1 AND slug=?", req.Slug).Scan(&id); err != nil {
+		respondQuizLoadError(w, err)
 		return
 	}
 	saveVerifiedResult(w, r, id, req.Version, req.Answers)
