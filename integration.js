@@ -491,7 +491,7 @@ async function installChat() {
     view.innerHTML = '<div class="grid min-h-full place-items-center p-8 text-center"><div><h1 class="font-display text-2xl font-bold">Личные сообщения</h1><p class="mt-3">Переписка хранится в базе данных и доступна после входа.</p><button class="backend-primary-button mt-5">Войти</button></div></div>';
     view.querySelector('button').onclick = () => openAuthModal(); return;
   }
-  let people = []; let peer = ''; let renderedMessages = '';
+  let people = []; let peer = ''; let renderedMessages = ''; let renderedPeople = '';
   aside.innerHTML = '<p class="font-display text-xl font-bold">Участники</p><div class="backend-chat-people mt-5"></div>';
   view.innerHTML = '<header class="border-b border-border p-5"><h1 class="font-display text-xl font-bold">Выберите собеседника</h1></header><div class="backend-chat-messages flex-1 overflow-y-auto p-5" aria-live="polite"></div><form class="flex gap-2 border-t border-border p-4"><input class="flex-1 border border-border bg-background px-4 py-3 text-sm" maxlength="1000" placeholder="Написать сообщение…" required><button class="bg-primary px-5 text-primary-foreground" type="submit">Отправить</button></form>';
   const list = aside.querySelector('.backend-chat-people'); const messages = view.querySelector('.backend-chat-messages');
@@ -503,6 +503,7 @@ async function installChat() {
     if (requestedPeer !== peer) return;
     if (error.status === 404) {
       peer = '';
+      renderedPeople = '';
       input.disabled = send.disabled = true;
       list.querySelectorAll('[data-username]').forEach((button) => {
         if (button.dataset.username === requestedPeer) button.remove();
@@ -538,12 +539,19 @@ async function installChat() {
     view.querySelector('header h1').textContent = people.find((person) => person.username === peer)?.name || peer;
     await loadMessages();
   };
+  const loadPeople = async () => {
+    people = await api('/chat/conversations');
+    const markup = people.map((person) => `<button type="button" class="backend-person-button ${person.username === peer ? 'bg-primary' : ''}" data-username="${esc(person.username)}"><b>${esc(person.name || person.username)}</b><span>${esc(person.last_message || `${person.points} баллов`)}</span>${person.unread_count ? `<i>${person.unread_count}</i>` : ''}</button>`).join('') || '<p>Пока нет других участников. Пригласите друзей зарегистрироваться.</p>';
+    if (renderedPeople !== markup) list.innerHTML = renderedPeople = markup;
+    if (!peer && people.length) await selectPeer(people[0].username);
+  };
+  list.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-username]');
+    if (button) selectPeer(button.dataset.username);
+  });
   try {
     cache.user = cache.user || await api('/me');
-    people = await api('/chat/conversations');
-    list.innerHTML = people.map((person) => `<button type="button" class="backend-person-button" data-username="${esc(person.username)}"><b>${esc(person.name || person.username)}</b><span>${esc(person.last_message || `${person.points} баллов`)}</span>${person.unread_count ? `<i>${person.unread_count}</i>` : ''}</button>`).join('') || '<p>Пока нет других участников. Пригласите друзей зарегистрироваться.</p>';
-    list.querySelectorAll('[data-username]').forEach((button) => button.addEventListener('click', () => selectPeer(button.dataset.username)));
-    if (people.length) await selectPeer(people[0].username);
+    await loadPeople();
     composer.addEventListener('submit', async (event) => {
       event.preventDefault();
       const recipient = peer;
@@ -558,7 +566,10 @@ async function installChat() {
       } catch (error) { showChatError(error, recipient); }
       finally { if (peer === recipient) send.disabled = false; }
     });
-    window.setInterval(loadMessages, 7000);
+    window.setInterval(async () => {
+      await loadMessages();
+      await loadPeople().catch(() => { /* Leave existing conversations visible during a temporary failure. */ });
+    }, 7000);
   } catch (error) { status(aside, `Не удалось загрузить диалоги: ${error.message}`, true); }
 }
 
@@ -788,7 +799,7 @@ function showBattleRoom(battle, target) {
 
 function playTeamBattle(battle, target) {
   runQuestionGame(battle.questions || [], target, battle.time_seconds || 20, async (answers) => {
-    const updated = await api(`/team-battles/${battle.code}/finish`, { method: 'POST', body: JSON.stringify({ answers }) });
+    const updated = await api(`/team-battles/${battle.code}/finish`, { method: 'POST', retryRead: true, body: JSON.stringify({ answers }) });
     showBattleRoom(updated, target);
   });
 }
