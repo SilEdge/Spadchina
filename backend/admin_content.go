@@ -208,7 +208,7 @@ func adminRewardHandler(w http.ResponseWriter, r *http.Request) {
 // Admin questions take priority in new battles, then article questions fill the remaining slots.
 func loadBattleQuestions(mode, category string) []DuelQuestion {
 	rows, err := db.Query(`SELECT id, category, category_label, question, options, correct FROM battle_questions
-		WHERE (mode=? OR mode='both') AND (?='all' OR category=?) ORDER BY RANDOM()`, mode, category, category)
+		WHERE (mode=? OR mode='both') AND (?='all' OR category=? OR (?='memory' AND category='memorial')) ORDER BY RANDOM()`, mode, category, category, category)
 	if err != nil {
 		return nil
 	}

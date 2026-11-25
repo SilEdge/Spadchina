@@ -46,13 +46,13 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
   widget.innerHTML = `
     <button class="atlas-assistant__launcher" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="atlas-assistant-chat">
       ${renderIcon(faCommentDots)}
-      <span lang="en">Spadchin</span>
+      <span>Спадчина</span>
     </button>
     <section class="atlas-assistant__panel" id="atlas-assistant-chat" role="dialog" aria-labelledby="atlas-assistant-title" inert>
       <div class="atlas-assistant__hero">
         <span class="atlas-assistant__avatar"><img src="${import.meta.env.BASE_URL}assets/b29a1d34f6.png" width="40" height="40" alt=""></span>
         <div class="atlas-assistant__title">
-          <h2 id="atlas-assistant-title" lang="en">Spadchin</h2>
+          <h2 id="atlas-assistant-title">Спадчина</h2>
           <p>ИИ-помощник</p>
         </div>
         <button class="atlas-assistant__close" type="button" aria-label="Свернуть чат">
@@ -62,11 +62,11 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
       <div class="atlas-assistant__messages" role="log" aria-label="Переписка" tabindex="0">
         <div class="atlas-assistant__greeting">
           <div>
-            <p class="atlas-assistant__message">Привет! Я Spadchina 2.0. Чем помочь?</p>
+            <p class="atlas-assistant__message">Привет! Я Спадчина. Чем помочь?</p>
           </div>
         </div>
         <div class="atlas-assistant__typing" hidden>
-          <span class="atlas-assistant__sr-only">Spadchin печатает…</span>
+          <span class="atlas-assistant__sr-only">Спадчина печатает…</span>
           <span class="atlas-assistant__dots" aria-hidden="true"><i></i><i></i><i></i></span>
         </div>
       </div>
@@ -201,7 +201,7 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
 
     try {
       const useAI = await checkAvailability();
-      typing.firstElementChild.textContent = useAI ? 'Spadchin печатает…' : 'Поиск по атласу…';
+      typing.firstElementChild.textContent = useAI ? 'Спадчина печатает…' : 'Поиск по атласу…';
       setStatus(useAI ? tip : '');
       if (useAI) {
         const { answer } = await api('/atlas/assistant', {

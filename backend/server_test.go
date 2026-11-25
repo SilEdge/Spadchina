@@ -163,7 +163,7 @@ func TestServerWorkflow(t *testing.T) {
 	requestJSON(t, client, http.MethodGet, server.URL+"/api/leaderboard?period=year", "", nil, http.StatusBadRequest, nil)
 
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/chat/messages", first.Token, map[string]string{
-		"to": second.User.Username, "text": "Проверка чата",
+		"to": " " + second.User.Username + " ", "text": "Проверка чата",
 	}, http.StatusCreated, nil)
 	var messages []ChatMessage
 	requestJSON(t, client, http.MethodGet, server.URL+"/api/chat/messages?peer="+second.User.Username, first.Token, nil, http.StatusOK, &messages)
@@ -182,6 +182,12 @@ func TestServerWorkflow(t *testing.T) {
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/duels", first.Token, DuelCreateRequest{
 		Opponent: second.User.Username,
 	}, http.StatusCreated, &duelCreated)
+	var invites []ChatMessage
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/chat/messages?peer="+first.User.Username, second.Token, nil, http.StatusOK, &invites)
+	if len(invites) != 2 || invites[0].DuelID != 0 || invites[1].DuelID != duelCreated.ID {
+		t.Fatalf("duel invitation was not linked in the recipient's chat: %+v", invites)
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/chat/messages?peer=missing-recipient", second.Token, nil, http.StatusNotFound, nil)
 	requestJSON(t, client, http.MethodPost, fmt.Sprintf("%s/api/duels/%d/accept", server.URL, duelCreated.ID), second.Token, nil, http.StatusOK, nil)
 	var duel Duel
 	requestJSON(t, client, http.MethodGet, fmt.Sprintf("%s/api/duels/%d", server.URL, duelCreated.ID), first.Token, nil, http.StatusOK, &duel)
@@ -204,15 +210,28 @@ func TestServerWorkflow(t *testing.T) {
 	if len(categories) == 0 || categories[0].QuestionCount < 10 {
 		t.Fatalf("team battle categories are not ready: %+v", categories)
 	}
+	for _, category := range categories {
+		if category.Category == "memorial" {
+			t.Fatalf("legacy memory bank appeared as a separate category: %+v", categories)
+		}
+		if category.Category == "memory" && category.QuestionCount < 30 {
+			t.Fatalf("legacy questions were not included in the memory category: %+v", category)
+		}
+	}
 	createBattle := TeamBattleCreateRequest{Code: "123456", Category: "all", QuestionCount: 10, TimeSeconds: 30}
 	var battle TeamBattle
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles", first.Token, createBattle, http.StatusOK, &battle)
 	if battle.Started || battle.TimeSeconds != 30 || battle.CategoryLabel != "Все темы" {
 		t.Fatalf("battle lobby settings were not saved: %+v", battle)
 	}
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles", second.Token, createBattle, http.StatusConflict, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/join", second.Token, nil, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/start", second.Token, nil, http.StatusForbidden, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", first.Token, DuelFinishRequest{}, http.StatusConflict, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/start", first.Token, nil, http.StatusOK, &battle)
+	late := registerTestUser(t, client, server.URL, "Late player", "late@example.test")
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/join", late.Token, nil, http.StatusConflict, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/join", second.Token, nil, http.StatusOK, nil)
 	if len(battle.Questions) != 10 {
 		t.Fatalf("team battle has %d questions", len(battle.Questions))
 	}

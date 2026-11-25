@@ -3,11 +3,13 @@ package backend
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -337,16 +339,16 @@ func getProgressHandler(w http.ResponseWriter, r *http.Request) {
 	}, http.StatusOK)
 }
 
+const recalcPointsSQL = `UPDATE users SET points = MAX(0,
+	COALESCE((SELECT SUM(CASE WHEN ap.slug IS NOT NULL THEN ap.points * r.score / r.max_score
+		ELSE r.score * 10 + CASE WHEN r.score = r.max_score THEN 20 WHEN r.score >= r.max_score * 0.7 THEN 10 ELSE 0 END END)
+		FROM results r LEFT JOIN atlas_places ap ON ap.article_id = r.article_id WHERE r.user_id = users.id), 0)
+	+ COALESCE((SELECT COUNT(*) * 40 FROM duels WHERE winner_id = users.id AND status = 'completed'), 0)
+	+ COALESCE((SELECT SUM(reward_points) FROM team_battle_participants WHERE user_id = users.id), 0)
+	- COALESCE((SELECT SUM(ri.cost) FROM user_rewards ur JOIN reward_items ri ON ri.id = ur.reward_id WHERE ur.user_id = users.id), 0))`
+
 func recalcPoints(userID int) {
-	var total int
-	db.QueryRow(`SELECT MAX(0,
-		COALESCE((SELECT SUM(CASE WHEN ap.slug IS NOT NULL THEN ap.points * r.score / r.max_score
-			ELSE r.score * 10 + CASE WHEN r.score = r.max_score THEN 20 WHEN r.score >= r.max_score * 0.7 THEN 10 ELSE 0 END END)
-			FROM results r LEFT JOIN atlas_places ap ON ap.article_id = r.article_id WHERE r.user_id = ?), 0)
-		+ COALESCE((SELECT COUNT(*) * 40 FROM duels WHERE winner_id = ? AND status = 'completed'), 0)
-		+ COALESCE((SELECT SUM(reward_points) FROM team_battle_participants WHERE user_id = ?), 0)
-		- COALESCE((SELECT SUM(ri.cost) FROM user_rewards ur JOIN reward_items ri ON ri.id = ur.reward_id WHERE ur.user_id = ?), 0))`, userID, userID, userID, userID).Scan(&total)
-	db.Exec("UPDATE users SET points = ? WHERE id = ?", total, userID)
+	db.Exec(recalcPointsSQL+" WHERE id = ?", userID)
 }
 
 func getLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -506,17 +508,19 @@ func chatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+const duelInvitePrefix = "Бросил вызов на культурную дуэль #"
+const duelInviteSuffix = ". Открой вкладку «Батлы», чтобы принять."
+
 func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	claims := userFromContext(r.Context())
-	peerName := strings.TrimSpace(r.URL.Query().Get("peer"))
-	if peerName == "" {
+	peerName := r.URL.Query().Get("peer")
+	if strings.TrimSpace(peerName) == "" {
 		respondError(w, "peer required", http.StatusBadRequest)
 		return
 	}
 
-	peerID, ok := findUserIDByUsername(peerName)
+	peerID, ok := chatRecipientID(w, r, peerName)
 	if !ok {
-		respondError(w, "user not found", http.StatusNotFound)
 		return
 	}
 
@@ -524,14 +528,18 @@ func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(`
 		SELECT m.id, su.username, COALESCE(NULLIF(su.name, ''), su.username),
-			ru.username, COALESCE(NULLIF(ru.name, ''), ru.username), m.text, m.is_read, m.created_at
+			ru.username, COALESCE(NULLIF(ru.name, ''), ru.username), m.text, m.is_read, m.created_at,
+			COALESCE(d.id, 0)
 		FROM messages m
 		JOIN users su ON su.id = m.sender_id
 		JOIN users ru ON ru.id = m.receiver_id
+		LEFT JOIN duels d ON d.id = CAST(SUBSTR(m.text, LENGTH(?) + 1) AS INTEGER)
+			AND d.challenger_id = m.sender_id AND d.opponent_id = m.receiver_id
+			AND m.text = ? || d.id || ?
 		WHERE (m.sender_id = ? AND m.receiver_id = ?)
 			OR (m.sender_id = ? AND m.receiver_id = ?)
 		ORDER BY m.created_at ASC, m.id ASC
-	`, claims.UserID, peerID, peerID, claims.UserID)
+	`, duelInvitePrefix, duelInvitePrefix, duelInviteSuffix, claims.UserID, peerID, peerID, claims.UserID)
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
 		return
@@ -542,7 +550,7 @@ func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var msg ChatMessage
 		var readInt int
-		if err := rows.Scan(&msg.ID, &msg.Sender, &msg.SenderName, &msg.Receiver, &msg.ReceiverName, &msg.Text, &readInt, &msg.CreatedAt); err != nil {
+		if err := rows.Scan(&msg.ID, &msg.Sender, &msg.SenderName, &msg.Receiver, &msg.ReceiverName, &msg.Text, &readInt, &msg.CreatedAt, &msg.DuelID); err != nil {
 			continue
 		}
 		msg.IsRead = readInt == 1
@@ -561,9 +569,8 @@ func sendChatMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.To = strings.TrimSpace(req.To)
 	req.Text = strings.TrimSpace(req.Text)
-	if req.To == "" || req.Text == "" {
+	if strings.TrimSpace(req.To) == "" || req.Text == "" {
 		respondError(w, "recipient and text required", http.StatusBadRequest)
 		return
 	}
@@ -572,9 +579,8 @@ func sendChatMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	receiverID, ok := findUserIDByUsername(req.To)
+	receiverID, ok := chatRecipientID(w, r, req.To)
 	if !ok {
-		respondError(w, "user not found", http.StatusNotFound)
 		return
 	}
 	if receiverID == claims.UserID {
@@ -601,16 +607,21 @@ func getUnreadCountHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, UnreadResponse{UnreadCount: count}, http.StatusOK)
 }
 
-func findUserIDByUsername(username string) (int, bool) {
+func chatRecipientID(w http.ResponseWriter, r *http.Request, username string) (int, bool) {
 	var id int
-	err := db.QueryRow("SELECT id FROM users WHERE username = ?", username).Scan(&id)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, false
-		}
-		return 0, false
+	err := db.QueryRowContext(r.Context(), `
+		SELECT id FROM users WHERE username IN (?, ?)
+		ORDER BY (username = ?) DESC LIMIT 1
+	`, username, strings.TrimSpace(username), username).Scan(&id)
+	switch err {
+	case nil:
+		return id, true
+	case sql.ErrNoRows:
+		respondError(w, "Собеседник больше недоступен. Выберите другой диалог.", http.StatusNotFound)
+	default:
+		respondError(w, "db error", http.StatusInternalServerError)
 	}
-	return id, true
+	return 0, false
 }
 
 func findDuelOpponentID(identifier string, currentUserID int) (int, bool) {
@@ -710,7 +721,13 @@ func createDuelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	questionsJSON, _ := json.Marshal(questions)
 
-	res, err := db.Exec(`
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`
 		INSERT INTO duels (challenger_id, opponent_id, question_set, questions)
 		VALUES (?, ?, ?, ?)
 	`, claims.UserID, opponentID, setIndex, string(questionsJSON))
@@ -720,12 +737,14 @@ func createDuelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	duelID, _ := res.LastInsertId()
-	db.Exec(
+	_, err = tx.Exec(
 		"INSERT INTO messages (sender_id, receiver_id, text) VALUES (?, ?, ?)",
-		claims.UserID,
-		opponentID,
-		fmt.Sprintf("Бросил вызов на культурную дуэль #%d. Открой вкладку «Батлы», чтобы принять.", duelID),
+		claims.UserID, opponentID, fmt.Sprintf("%s%d%s", duelInvitePrefix, duelID, duelInviteSuffix),
 	)
+	if err != nil || tx.Commit() != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
 
 	respondJSON(w, map[string]interface{}{"id": duelID, "status": "pending"}, http.StatusCreated)
 }
@@ -893,7 +912,14 @@ func finishDuelHandler(w http.ResponseWriter, r *http.Request, duelID int) {
 	} else {
 		query = "UPDATE duels SET opponent_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND opponent_score = -1"
 	}
-	res, err := db.Exec(query, score, duelID)
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(query, score, duelID)
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
 		return
@@ -904,7 +930,14 @@ func finishDuelHandler(w http.ResponseWriter, r *http.Request, duelID int) {
 		return
 	}
 
-	finalizeDuelIfReady(duelID)
+	if err := finalizeDuelIfReady(tx, duelID); err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
 	nextDuel, _ := getDuelForUser(duelID, claims.UserID)
 	respondJSON(w, nextDuel, http.StatusOK)
 }
@@ -961,42 +994,7 @@ func scanDuel(scanner duelScanner) (Duel, bool) {
 }
 
 func buildDuelQuestions(count int) ([]DuelQuestion, error) {
-	custom := loadBattleQuestions("duel", "all")
-	rows, err := db.Query("SELECT category, category_label, questions FROM articles ORDER BY id")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	allQuestions := []DuelQuestion{}
-	for rows.Next() {
-		var category, label, raw string
-		if err := rows.Scan(&category, &label, &raw); err != nil {
-			continue
-		}
-		var articleQuestions []DuelQuestion
-		if err := json.Unmarshal([]byte(raw), &articleQuestions); err != nil {
-			continue
-		}
-		for _, question := range articleQuestions {
-			question.Category = category
-			question.CategoryLabel = label
-			allQuestions = append(allQuestions, question)
-		}
-	}
-
-	if len(allQuestions)+len(custom) < count {
-		return nil, fmt.Errorf("not enough questions")
-	}
-
-	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	random.Shuffle(len(allQuestions), func(i, j int) {
-		allQuestions[i], allQuestions[j] = allQuestions[j], allQuestions[i]
-	})
-	if len(custom) >= count {
-		return custom[:count], nil
-	}
-	return append(custom, allQuestions[:count-len(custom)]...), nil
+	return buildBattleQuestionSet("duel", "all", count)
 }
 
 func scoreDuelAnswers(questions []DuelQuestion, answers []DuelAnswer) int {
@@ -1117,45 +1115,45 @@ func teamBattleActionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTeamBattleCategoriesHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query(`
-		SELECT category, MIN(category_label)
-		FROM articles
-		GROUP BY category
-		ORDER BY MIN(category_label)
-	`)
+	questions, err := readArticleBattleQuestions("all")
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	questions = append(questions, loadBattleQuestions("team", "all")...)
+	counts := map[string]TeamBattleCategory{}
+	seenByCategory := map[string]map[int]bool{}
+	all := map[int]bool{}
+	for _, question := range questions {
+		category := question.Category
+		if category == "memorial" {
+			category = "memory"
+		}
+		if seenByCategory[category] == nil {
+			seenByCategory[category] = map[int]bool{}
+		}
+		if seenByCategory[category][question.ID] {
+			continue
+		}
+		all[question.ID] = true
+		seenByCategory[category][question.ID] = true
+		item := counts[category]
+		item.Category, item.CategoryLabel = category, question.CategoryLabel
+		item.QuestionCount++
+		counts[category] = item
+	}
 
-	categories := []TeamBattleCategory{}
-	for rows.Next() {
-		var item TeamBattleCategory
-		if err := rows.Scan(&item.Category, &item.CategoryLabel); err == nil {
-			item.QuestionCount = countQuestionsForCategory(item.Category)
-			categories = append(categories, item)
-		}
+	categories := make([]TeamBattleCategory, 0, len(counts)+1)
+	for _, item := range counts {
+		categories = append(categories, item)
 	}
-	customRows, err := db.Query("SELECT category, MIN(category_label) FROM battle_questions WHERE mode IN ('team','both') GROUP BY category")
-	if err == nil {
-		for customRows.Next() {
-			var category, label string
-			if customRows.Scan(&category, &label) == nil {
-				found := false
-				for _, item := range categories {
-					if item.Category == category {
-						found = true
-						break
-					}
-				}
-				if !found {
-					categories = append(categories, TeamBattleCategory{Category: category, CategoryLabel: label, QuestionCount: countQuestionsForCategory(category)})
-				}
-			}
+	sort.Slice(categories, func(i, j int) bool {
+		if categories[i].CategoryLabel == categories[j].CategoryLabel {
+			return categories[i].Category < categories[j].Category
 		}
-		customRows.Close()
-	}
+		return categories[i].CategoryLabel < categories[j].CategoryLabel
+	})
+	categories = append(categories, TeamBattleCategory{Category: "all", CategoryLabel: "Все темы", QuestionCount: len(all)})
 	respondJSON(w, categories, http.StatusOK)
 }
 
@@ -1201,6 +1199,9 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Category == "memorial" {
+		req.Category = "memory"
+	}
 	categoryLabel, ok := findTeamBattleCategoryLabel(req.Category)
 	if req.Category == "all" {
 		categoryLabel, ok = "Все темы", true
@@ -1211,8 +1212,12 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	questions, err := buildTeamBattleQuestions(req.Category, questionCount)
+	if errors.Is(err, errNotEnoughBattleQuestions) {
+		respondError(w, "not enough questions for category", http.StatusBadRequest)
+		return
+	}
 	if err != nil {
-		respondError(w, "not enough questions for category", http.StatusInternalServerError)
+		respondError(w, "db error", http.StatusInternalServerError)
 		return
 	}
 	questionsJSON, _ := json.Marshal(questions)
@@ -1257,19 +1262,34 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 
 func joinTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string) {
 	claims := userFromContext(r.Context())
-	battleID, ok := findTeamBattleIDByCode(code)
-	if !ok {
-		respondError(w, "team battle not found", http.StatusNotFound)
-		return
-	}
-
-	_, err := db.Exec(`
+	res, err := db.ExecContext(r.Context(), `
 		INSERT OR IGNORE INTO team_battle_participants (battle_id, user_id)
-		VALUES (?, ?)
-	`, battleID, claims.UserID)
+		SELECT id, ? FROM team_battles WHERE code = ? AND started = 0
+	`, claims.UserID, code)
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
 		return
+	}
+
+	added, _ := res.RowsAffected()
+	if added == 0 {
+		var member bool
+		err = db.QueryRowContext(r.Context(), `
+			SELECT EXISTS(SELECT 1 FROM team_battle_participants WHERE battle_id = b.id AND user_id = ?)
+			FROM team_battles b WHERE code = ?
+		`, claims.UserID, code).Scan(&member)
+		if err == sql.ErrNoRows {
+			respondError(w, "team battle not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			respondError(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		if !member {
+			respondError(w, "Батл уже начался. Присоединиться к нему нельзя.", http.StatusConflict)
+			return
+		}
 	}
 
 	respondTeamBattleByCode(w, code)
@@ -1320,7 +1340,14 @@ func finishTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string
 	}
 
 	score := scoreTeamBattleAnswers(battle.Questions, req.Answers)
-	result, err := db.Exec(`UPDATE team_battle_participants SET score = ?, updated_at = CURRENT_TIMESTAMP
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`UPDATE team_battle_participants SET score = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE battle_id = ? AND user_id = ? AND score = -1`, score, battle.ID, claims.UserID)
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
@@ -1332,7 +1359,14 @@ func finishTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string
 		return
 	}
 
-	awardTeamBattlePoints(battle.ID)
+	if err := awardTeamBattlePoints(tx, battle.ID); err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(w, "db error", http.StatusInternalServerError)
+		return
+	}
 	respondTeamBattleByCode(w, code)
 }
 
@@ -1385,7 +1419,7 @@ func getTeamBattleParticipants(battleID int) []TeamBattleParticipant {
 		FROM team_battle_participants tbp
 		JOIN users u ON u.id = tbp.user_id
 		WHERE tbp.battle_id = ?
-		ORDER BY tbp.score DESC, tbp.updated_at ASC
+		ORDER BY tbp.score DESC, tbp.updated_at ASC, tbp.user_id ASC
 	`, battleID)
 	if err != nil {
 		return []TeamBattleParticipant{}
@@ -1414,65 +1448,82 @@ func findTeamBattleCategoryLabel(category string) (string, bool) {
 	err := db.QueryRow(`
 		SELECT category_label
 		FROM articles
-		WHERE category = ?
+		WHERE category = ? OR (? = 'memory' AND category = 'memorial')
 		ORDER BY id
 		LIMIT 1
-	`, category).Scan(&label)
+	`, category, category).Scan(&label)
 	if err == nil {
 		return label, true
 	}
-	err = db.QueryRow("SELECT category_label FROM battle_questions WHERE category=? AND mode IN ('team','both') LIMIT 1", category).Scan(&label)
+	err = db.QueryRow("SELECT category_label FROM battle_questions WHERE (category=? OR (?='memory' AND category='memorial')) AND mode IN ('team','both') LIMIT 1", category, category).Scan(&label)
 	return label, err == nil
 }
 
+var errNotEnoughBattleQuestions = errors.New("not enough battle questions")
+
 func buildTeamBattleQuestions(category string, count int) ([]DuelQuestion, error) {
-	custom := loadBattleQuestions("team", category)
+	if category == "memorial" {
+		category = "memory"
+	}
+	return buildBattleQuestionSet("team", category, count)
+}
+
+func buildBattleQuestionSet(mode, category string, count int) ([]DuelQuestion, error) {
+	custom := loadBattleQuestions(mode, category)
+	if len(custom) >= count {
+		return custom[:count], nil
+	}
+	fallback, err := readArticleBattleQuestions(category)
+	if err != nil {
+		return nil, err
+	}
+	rand.Shuffle(len(fallback), func(i, j int) { fallback[i], fallback[j] = fallback[j], fallback[i] })
+
+	selected := make([]DuelQuestion, 0, count)
+	seen := map[int]bool{}
+	for _, pool := range [][]DuelQuestion{custom, fallback} {
+		for _, question := range pool {
+			if seen[question.ID] {
+				continue
+			}
+			seen[question.ID] = true
+			selected = append(selected, question)
+			if len(selected) == count {
+				return selected, nil
+			}
+		}
+	}
+	return nil, errNotEnoughBattleQuestions
+}
+
+func readArticleBattleQuestions(category string) ([]DuelQuestion, error) {
 	rows, err := db.Query(`
 		SELECT category, category_label, questions
 		FROM articles
-		WHERE (? = 'all' OR category = ?)
+		WHERE (? = 'all' OR category = ? OR (? = 'memory' AND category = 'memorial'))
 		ORDER BY id
-	`, category, category)
+	`, category, category, category)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	questions := []DuelQuestion{}
-	seen := map[int]bool{}
 	for rows.Next() {
 		var itemCategory, label, raw string
 		if err := rows.Scan(&itemCategory, &label, &raw); err != nil {
-			continue
+			return nil, err
 		}
 		var articleQuestions []DuelQuestion
 		if err := json.Unmarshal([]byte(raw), &articleQuestions); err != nil {
 			continue
 		}
 		for _, question := range articleQuestions {
-			if seen[question.ID] {
-				continue
-			}
-			question.Category = itemCategory
-			question.CategoryLabel = label
+			question.Category, question.CategoryLabel = itemCategory, label
 			questions = append(questions, question)
-			seen[question.ID] = true
 		}
 	}
-
-	if len(questions)+len(custom) < count {
-		return nil, fmt.Errorf("not enough questions for category")
-	}
-
-	rand.Shuffle(len(questions), func(i, j int) { questions[i], questions[j] = questions[j], questions[i] })
-	selected := make([]DuelQuestion, 0, count)
-	for i := 0; i < len(custom) && i < count; i++ {
-		selected = append(selected, custom[i])
-	}
-	for i := 0; len(selected) < count; i++ {
-		selected = append(selected, questions[i])
-	}
-	return selected, nil
+	return questions, rows.Err()
 }
 
 func scoreTeamBattleAnswers(questions []DuelQuestion, answers []DuelAnswer) int {
@@ -1491,54 +1542,24 @@ func scoreTeamBattleAnswers(questions []DuelQuestion, answers []DuelAnswer) int 
 	return total
 }
 
-func awardTeamBattlePoints(battleID int) {
-	rows, err := db.Query(`
-		SELECT tbp.user_id, tbp.reward_points
-		FROM team_battle_participants tbp
-		WHERE tbp.battle_id = ? AND tbp.score >= 0
-		ORDER BY tbp.score DESC, tbp.updated_at ASC
-	`, battleID)
+func awardTeamBattlePoints(tx *sql.Tx, battleID int) error {
+	_, err := tx.Exec(`
+		WITH ranked AS (
+			SELECT user_id, ROW_NUMBER() OVER (ORDER BY score DESC, updated_at ASC, user_id ASC) AS position
+			FROM team_battle_participants WHERE battle_id = ? AND score >= 0
+		)
+		UPDATE team_battle_participants SET reward_points = (
+			SELECT CASE position WHEN 1 THEN 60 WHEN 2 THEN 40 WHEN 3 THEN 20 ELSE 0 END
+			FROM ranked WHERE ranked.user_id = team_battle_participants.user_id
+		)
+		WHERE battle_id = ? AND score >= 0
+	`, battleID, battleID)
 	if err != nil {
-		return
+		return err
 	}
-
-	type rankedParticipant struct {
-		UserID       int
-		RewardPoints int
-	}
-
-	participants := []rankedParticipant{}
-	for rows.Next() {
-		var item rankedParticipant
-		if err := rows.Scan(&item.UserID, &item.RewardPoints); err == nil {
-			participants = append(participants, item)
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return
-	}
-
-	rewards := []int{60, 40, 20}
-	for index, participant := range participants {
-		targetReward := 0
-		if index < len(rewards) {
-			targetReward = rewards[index]
-		}
-		delta := targetReward - participant.RewardPoints
-		if delta == 0 {
-			continue
-		}
-
-		_, err := db.Exec(`
-			UPDATE team_battle_participants
-			SET reward_points = ?
-			WHERE battle_id = ? AND user_id = ?
-		`, targetReward, battleID, participant.UserID)
-		if err != nil {
-			continue
-		}
-		recalcPoints(participant.UserID)
-	}
+	_, err = tx.Exec(recalcPointsSQL+` WHERE id IN (
+		SELECT user_id FROM team_battle_participants WHERE battle_id = ? AND score >= 0)`, battleID)
+	return err
 }
 
 func isSixDigitCode(code string) bool {
@@ -1553,34 +1574,18 @@ func isSixDigitCode(code string) bool {
 	return true
 }
 
-func finalizeDuelIfReady(duelID int) {
-	var challengerID, opponentID, challengerScore, opponentScore int
-	var status string
-	err := db.QueryRow(`
-		SELECT challenger_id, opponent_id, status, challenger_score, opponent_score
-		FROM duels WHERE id = ?
-	`, duelID).Scan(&challengerID, &opponentID, &status, &challengerScore, &opponentScore)
-	if err != nil || status != "active" || challengerScore < 0 || opponentScore < 0 {
-		return
+func finalizeDuelIfReady(tx *sql.Tx, duelID int) error {
+	result, err := tx.Exec(`UPDATE duels SET status = 'completed', updated_at = CURRENT_TIMESTAMP,
+		winner_id = CASE WHEN challenger_score > opponent_score THEN challenger_id
+			WHEN opponent_score > challenger_score THEN opponent_id ELSE NULL END
+		WHERE id = ? AND status = 'active' AND challenger_score >= 0 AND opponent_score >= 0`, duelID)
+	if err != nil {
+		return err
 	}
-
-	winnerID := 0
-	if challengerScore > opponentScore {
-		winnerID = challengerID
-	} else if opponentScore > challengerScore {
-		winnerID = opponentID
+	changed, err := result.RowsAffected()
+	if err != nil || changed == 0 {
+		return err
 	}
-
-	var selectedWinner interface{}
-	if winnerID > 0 {
-		selectedWinner = winnerID
-	}
-	result, err := db.Exec(`UPDATE duels SET status = 'completed', winner_id = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND status = 'active'`, selectedWinner, duelID)
-	if err == nil {
-		affected, _ := result.RowsAffected()
-		if affected == 1 && winnerID > 0 {
-			recalcPoints(winnerID)
-		}
-	}
+	_, err = tx.Exec(recalcPointsSQL+" WHERE id = (SELECT winner_id FROM duels WHERE id = ?)", duelID)
+	return err
 }
