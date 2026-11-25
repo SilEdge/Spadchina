@@ -1,10 +1,13 @@
 package backend
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"reflect"
@@ -474,9 +477,13 @@ func getConversationsHandler(w http.ResponseWriter, r *http.Request) {
 				WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0
 			) AS unread_count
 		FROM users u
-		WHERE u.id != ? AND u.role = 'user'
+		WHERE u.id != ?
+			AND (u.role = 'user' OR EXISTS (
+				SELECT 1 FROM messages m WHERE (m.sender_id = ? AND m.receiver_id = u.id)
+					OR (m.sender_id = u.id AND m.receiver_id = ?)
+			))
 		ORDER BY unread_count DESC, last_at DESC, u.points DESC, u.username ASC
-	`, claims.UserID, claims.UserID, claims.UserID, claims.UserID, claims.UserID, claims.UserID)
+	`, claims.UserID, claims.UserID, claims.UserID, claims.UserID, claims.UserID, claims.UserID, claims.UserID, claims.UserID)
 	if err != nil {
 		respondError(w, "db error", http.StatusInternalServerError)
 		return
@@ -1064,7 +1071,7 @@ func teamBattlesHandler(w http.ResponseWriter, r *http.Request) {
 			respondError(w, "code required", http.StatusBadRequest)
 			return
 		}
-		respondTeamBattleByCode(w, code)
+		respondTeamBattleByCode(w, r, code)
 	case http.MethodPost:
 		createTeamBattleHandler(w, r)
 	default:
@@ -1093,7 +1100,7 @@ func teamBattleActionHandler(w http.ResponseWriter, r *http.Request) {
 
 	code := strings.TrimSpace(parts[0])
 	if r.Method == http.MethodGet && len(parts) == 1 {
-		respondTeamBattleByCode(w, code)
+		respondTeamBattleByCode(w, r, code)
 		return
 	}
 
@@ -1257,7 +1264,7 @@ func createTeamBattleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondTeamBattleByCode(w, code)
+	respondTeamBattleByCode(w, r, code)
 }
 
 func joinTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string) {
@@ -1292,7 +1299,7 @@ func joinTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string) 
 		}
 	}
 
-	respondTeamBattleByCode(w, code)
+	respondTeamBattleByCode(w, r, code)
 }
 
 func startTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string) {
@@ -1318,14 +1325,15 @@ func startTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string)
 		return
 	}
 
-	respondTeamBattleByCode(w, code)
+	respondTeamBattleByCode(w, r, code)
 }
 
 func finishTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string) {
 	claims := userFromContext(r.Context())
-	battle, ok := getTeamBattleByCode(code)
-	if !ok {
-		respondError(w, "team battle not found", http.StatusNotFound)
+	ctx := r.Context()
+	battle, err := getTeamBattleByCode(ctx, code)
+	if err != nil {
+		respondTeamBattleError(w, "load room before saving", err)
 		return
 	}
 	if !battle.Started {
@@ -1340,47 +1348,95 @@ func finishTeamBattleHandler(w http.ResponseWriter, r *http.Request, code string
 	}
 
 	score := scoreTeamBattleAnswers(battle.Questions, req.Answers)
-	tx, err := db.BeginTx(r.Context(), nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+		respondTeamBattleError(w, "open score transaction", err)
 		return
 	}
 	defer tx.Rollback()
 
-	result, err := tx.Exec(`UPDATE team_battle_participants SET score = ?, updated_at = CURRENT_TIMESTAMP
+	result, err := tx.ExecContext(ctx, `UPDATE team_battle_participants SET score = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE battle_id = ? AND user_id = ? AND score = -1`, score, battle.ID, claims.UserID)
 	if err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+		respondTeamBattleError(w, "save score", err)
 		return
 	}
-	affected, _ := result.RowsAffected()
+	affected, err := result.RowsAffected()
+	if err != nil {
+		respondTeamBattleError(w, "read affected rows", err)
+		return
+	}
 	if affected == 0 {
-		respondError(w, "join the battle before playing, or your result is already saved", http.StatusConflict)
+		var storedScore int
+		err = tx.QueryRowContext(ctx, "SELECT score FROM team_battle_participants WHERE battle_id = ? AND user_id = ?", battle.ID, claims.UserID).Scan(&storedScore)
+		if errors.Is(err, sql.ErrNoRows) {
+			respondError(w, "join the battle before playing, or your result is already saved", http.StatusConflict)
+			return
+		}
+		if err != nil || storedScore < 0 {
+			if err == nil {
+				err = errors.New("score update did not persist")
+			}
+			respondTeamBattleError(w, "check saved score", err)
+			return
+		}
+	} else if err := awardTeamBattlePoints(tx, battle.ID); err != nil {
+		respondTeamBattleError(w, "calculate rewards", err)
 		return
 	}
-
-	if err := awardTeamBattlePoints(tx, battle.ID); err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
+	battle.Participants, err = getTeamBattleParticipants(ctx, tx, battle.ID)
+	if err != nil {
+		respondTeamBattleError(w, "load results", err)
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		respondError(w, "db error", http.StatusInternalServerError)
-		return
-	}
-	respondTeamBattleByCode(w, code)
-}
-
-func respondTeamBattleByCode(w http.ResponseWriter, code string) {
-	battle, ok := getTeamBattleByCode(code)
-	if !ok {
-		respondError(w, "team battle not found", http.StatusNotFound)
+		respondTeamBattleError(w, "commit results", err)
 		return
 	}
 	respondJSON(w, battle, http.StatusOK)
 }
 
-func getTeamBattleByCode(code string) (TeamBattle, bool) {
-	row := db.QueryRow(`
+func respondTeamBattleByCode(w http.ResponseWriter, r *http.Request, code string) {
+	battle, err := getTeamBattleByCode(r.Context(), code)
+	if err == nil {
+		battle.Participants, err = getTeamBattleParticipants(r.Context(), db, battle.ID)
+	}
+	if err != nil {
+		respondTeamBattleError(w, "load room", err)
+		return
+	}
+	respondJSON(w, battle, http.StatusOK)
+}
+
+func respondTeamBattleError(w http.ResponseWriter, step string, err error) {
+	if errors.Is(err, sql.ErrNoRows) {
+		respondError(w, "team battle not found", http.StatusNotFound)
+		return
+	}
+	log.Printf("team battle: %s: %v", step, err)
+	respondError(w, "Не удалось связаться с базой. Попробуйте ещё раз.", http.StatusServiceUnavailable)
+}
+
+func getTeamBattleByCode(ctx context.Context, code string) (TeamBattle, error) {
+	for attempt := 0; ; attempt++ {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return TeamBattle{}, err
+		}
+		battle, err := readTeamBattle(ctx, conn, code)
+		if err != nil && ctx.Err() == nil && (attempt == 0 || !errors.Is(err, sql.ErrNoRows)) {
+			// Confirm missing rooms and failed reads on a different connection.
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+		conn.Close()
+		if err == nil || ctx.Err() != nil || attempt == 1 {
+			return battle, err
+		}
+	}
+}
+
+func readTeamBattle(ctx context.Context, conn *sql.Conn, code string) (TeamBattle, error) {
+	row := conn.QueryRowContext(ctx, `
 		SELECT tb.id, tb.code, u.username, tb.category, tb.category_label,
 		tb.questions, tb.started, tb.time_seconds, tb.created_at, tb.updated_at
 		FROM team_battles tb
@@ -1404,17 +1460,19 @@ func getTeamBattleByCode(code string) (TeamBattle, bool) {
 		&battle.UpdatedAt,
 	)
 	if err != nil {
-		return TeamBattle{}, false
+		return TeamBattle{}, err
 	}
-
-	json.Unmarshal([]byte(questionsRaw), &battle.Questions)
+	if err := json.Unmarshal([]byte(questionsRaw), &battle.Questions); err != nil {
+		return TeamBattle{}, err
+	}
 	battle.Started = started == 1
-	battle.Participants = getTeamBattleParticipants(battle.ID)
-	return battle, true
+	return battle, nil
 }
 
-func getTeamBattleParticipants(battleID int) []TeamBattleParticipant {
-	rows, err := db.Query(`
+func getTeamBattleParticipants(ctx context.Context, querier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, battleID int) ([]TeamBattleParticipant, error) {
+	rows, err := querier.QueryContext(ctx, `
 		SELECT u.username, COALESCE(NULLIF(u.name, ''), u.username), tbp.score, tbp.reward_points, tbp.updated_at
 		FROM team_battle_participants tbp
 		JOIN users u ON u.id = tbp.user_id
@@ -1422,19 +1480,20 @@ func getTeamBattleParticipants(battleID int) []TeamBattleParticipant {
 		ORDER BY tbp.score DESC, tbp.updated_at ASC, tbp.user_id ASC
 	`, battleID)
 	if err != nil {
-		return []TeamBattleParticipant{}
+		return nil, err
 	}
 	defer rows.Close()
 
 	participants := []TeamBattleParticipant{}
 	for rows.Next() {
 		var item TeamBattleParticipant
-		if err := rows.Scan(&item.Username, &item.Name, &item.Score, &item.RewardPoints, &item.UpdatedAt); err == nil {
-			item.Completed = item.Score >= 0
-			participants = append(participants, item)
+		if err := rows.Scan(&item.Username, &item.Name, &item.Score, &item.RewardPoints, &item.UpdatedAt); err != nil {
+			return nil, err
 		}
+		item.Completed = item.Score >= 0
+		participants = append(participants, item)
 	}
-	return participants
+	return participants, rows.Err()
 }
 
 func findTeamBattleIDByCode(code string) (int, bool) {

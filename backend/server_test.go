@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -229,17 +230,25 @@ func TestServerWorkflow(t *testing.T) {
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/start", second.Token, nil, http.StatusForbidden, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", first.Token, DuelFinishRequest{}, http.StatusConflict, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/start", first.Token, nil, http.StatusOK, &battle)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/654321/finish", second.Token, DuelFinishRequest{}, http.StatusNotFound, nil)
 	late := registerTestUser(t, client, server.URL, "Late player", "late@example.test")
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/join", late.Token, nil, http.StatusConflict, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/join", second.Token, nil, http.StatusOK, nil)
 	if len(battle.Questions) != 10 {
 		t.Fatalf("team battle has %d questions", len(battle.Questions))
 	}
-	privateBattle, _ := getTeamBattleByCode(battle.Code)
+	privateBattle, err := getTeamBattleByCode(t.Context(), battle.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
 	battleFinish := DuelFinishRequest{Answers: correctAnswers(privateBattle.Questions)}
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", first.Token, battleFinish, http.StatusOK, nil)
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", second.Token, battleFinish, http.StatusOK, &battle)
-	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", second.Token, battleFinish, http.StatusConflict, nil)
+	var retried TeamBattle
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/123456/finish", second.Token, DuelFinishRequest{}, http.StatusOK, &retried)
+	if !reflect.DeepEqual(battle.Participants, retried.Participants) {
+		t.Fatalf("retry changed saved team results: %+v", retried.Participants)
+	}
 	if len(battle.Participants) != 2 {
 		t.Fatalf("team battle has %d participants", len(battle.Participants))
 	}
@@ -276,6 +285,29 @@ func TestServerWorkflow(t *testing.T) {
 	requestJSON(t, client, http.MethodPost, server.URL+"/api/login", "", LoginRequest{
 		Email: "admin@example.test", Password: "test-admin-password-123",
 	}, http.StatusOK, &admin)
+	var adminDuel struct{ ID int }
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/duels", admin.Token, DuelCreateRequest{
+		Opponent: second.User.Username,
+	}, http.StatusCreated, &adminDuel)
+	var conversations []ChatConversation
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/chat/conversations", second.Token, nil, http.StatusOK, &conversations)
+	if len(conversations) == 0 || conversations[0].Username != admin.User.Username || conversations[0].UnreadCount != 1 {
+		t.Fatalf("administrator's duel did not appear in the participant's chat: %+v", conversations)
+	}
+	requestJSON(t, client, http.MethodGet, server.URL+"/api/chat/messages?peer="+admin.User.Username, second.Token, nil, http.StatusOK, &invites)
+	if len(invites) != 1 || invites[0].DuelID != adminDuel.ID {
+		t.Fatalf("administrator's duel link was missing: %+v", invites)
+	}
+	adminRoom := TeamBattleCreateRequest{Code: "765432", Category: "all", QuestionCount: 5}
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles", admin.Token, adminRoom, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/765432/join", second.Token, nil, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/765432/start", admin.Token, nil, http.StatusOK, nil)
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/765432/finish", second.Token, DuelFinishRequest{}, http.StatusOK, nil)
+	var adminBattle TeamBattle
+	requestJSON(t, client, http.MethodPost, server.URL+"/api/team-battles/765432/finish", admin.Token, DuelFinishRequest{}, http.StatusOK, &adminBattle)
+	if len(adminBattle.Participants) != 2 || !adminBattle.Participants[0].Completed || !adminBattle.Participants[1].Completed {
+		t.Fatalf("administrator and participant could not both save their score: %+v", adminBattle)
+	}
 	article := ArticleInput{
 		Publication: Publication{Published: true, Points: 120},
 		Title:       "Тестовый материал", Category: "history", CategoryLabel: "История",
