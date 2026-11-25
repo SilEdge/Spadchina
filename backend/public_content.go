@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -223,7 +225,7 @@ func validSelections(q DuelQuestion, selected []int) bool {
 func saveVerifiedResult(w http.ResponseWriter, r *http.Request, articleID int, version string, answers []DuelAnswer) {
 	questions, currentVersion, err := loadArticleQuiz(articleID)
 	if err != nil {
-		respondError(w, "Статья не найдена", 404)
+		respondQuizLoadError(w, err)
 		return
 	}
 	if len(questions) == 0 || len(answers) != len(questions) {
@@ -264,6 +266,15 @@ func saveVerifiedResult(w http.ResponseWriter, r *http.Request, articleID int, v
 	respondJSON(w, map[string]interface{}{"status": "ok", "score": score, "max_score": len(questions), "points": points}, 200)
 }
 
+func respondQuizLoadError(w http.ResponseWriter, err error) {
+	if errors.Is(err, sql.ErrNoRows) {
+		respondError(w, "Статья не найдена", http.StatusNotFound)
+		return
+	}
+	log.Printf("load atlas quiz: %v", err)
+	respondError(w, "Не удалось загрузить вопросы. Попробуйте ещё раз.", http.StatusServiceUnavailable)
+}
+
 func atlasCheckHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w, r)
 	if r.Method != http.MethodPost {
@@ -279,16 +290,18 @@ func atlasCheckHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "invalid request", 400)
 		return
 	}
-	var id int
-	if db.QueryRow("SELECT article_id FROM atlas_places WHERE published=1 AND slug=?", req.Slug).Scan(&id) != nil {
-		respondError(w, "Статья не найдена", 404)
+	var raw string
+	if err := db.QueryRowContext(r.Context(), `SELECT a.questions FROM atlas_places ap
+		JOIN articles a ON a.id=ap.article_id WHERE ap.published=1 AND ap.slug=?`, req.Slug).Scan(&raw); err != nil {
+		respondQuizLoadError(w, err)
 		return
 	}
-	q, version, err := loadArticleQuiz(id)
-	if err != nil {
-		respondError(w, "Не удалось загрузить вопросы", 500)
+	var q []DuelQuestion
+	if err := json.Unmarshal([]byte(raw), &q); err != nil {
+		respondError(w, "Не удалось загрузить вопросы.", http.StatusInternalServerError)
 		return
 	}
+	version := quizVersion(raw)
 	if req.Version != version {
 		respondError(w, "Вопросы обновились. Откройте статью заново.", 409)
 		return

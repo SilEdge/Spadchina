@@ -21,3 +21,16 @@ test('writes and authorization failures are not retried', async (t) => {
   await assert.rejects(requestJSON('/api/me'), { status: 401 });
   assert.equal(calls, 2);
 });
+
+test('answer check can retry a temporary failure without retrying scored writes', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls += 1;
+    assert.equal(url, '/api/atlas/check');
+    assert.equal(options.method, 'POST');
+    assert.equal(options.body, '{}');
+    return new Response(calls === 1 ? '{}' : '{"correct":true}', { status: calls === 1 ? 503 : 200 });
+  });
+  assert.deepEqual(await requestJSON('/api/atlas/check', { method: 'POST', body: '{}', retryRead: true }), { correct: true });
+  assert.equal(calls, 2);
+});

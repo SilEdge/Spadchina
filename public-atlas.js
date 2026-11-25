@@ -212,7 +212,7 @@ export async function installPlaceQuiz({ getAtlas, api, esc, token, queuePending
       const feedback = card.querySelector('.backend-quiz-feedback'); feedback.textContent = 'Проверяем ответ…';
       try {
         const answer = { question_id: Number(question.id), selected: choices };
-        const checked = await api('/atlas/check', { method: 'POST', body: JSON.stringify({ slug, version: place.quiz_version, ...answer }) });
+        const checked = await api('/atlas/check', { method: 'POST', retryRead: true, body: JSON.stringify({ slug, version: place.quiz_version, ...answer }) });
         answers.push(answer); if (checked.correct) score += 1;
         buttons.forEach((button, choice) => { if (checked.correct_options.includes(choice)) button.classList.add('backend-answer-correct'); else if (choices.includes(choice)) button.classList.add('backend-answer-wrong'); });
         feedback.textContent = `${checked.correct ? 'Верно. ' : 'Неверно. '}${checked.explanation || ''}`;
