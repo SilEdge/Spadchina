@@ -27,6 +27,9 @@ func TestAtlasAssistant(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/gemini" {
 			var body struct {
+				SystemInstruction struct {
+					Parts []map[string]string `json:"parts"`
+				} `json:"systemInstruction"`
 				Contents []struct {
 					Role  string              `json:"role"`
 					Parts []map[string]string `json:"parts"`
@@ -37,6 +40,7 @@ func TestAtlasAssistant(t *testing.T) {
 				return
 			}
 			if r.Method != http.MethodPost || r.Header.Get("x-goog-api-key") != "test-gemini-key" ||
+				len(body.SystemInstruction.Parts) != 1 || body.SystemInstruction.Parts[0]["text"] != assistantInstructions ||
 				len(body.Contents) != 3 || len(body.Contents[0].Parts) != 1 || len(body.Contents[2].Parts) != 1 ||
 				!strings.Contains(body.Contents[0].Parts[0]["text"], "Справочный текст открытой статьи") ||
 				body.Contents[1].Role != "model" || body.Contents[2].Parts[0]["text"] != "А кто его построил?" {

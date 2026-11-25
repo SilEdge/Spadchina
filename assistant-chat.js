@@ -53,7 +53,7 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
         <span class="atlas-assistant__avatar"><img src="${import.meta.env.BASE_URL}assets/b29a1d34f6.png" width="40" height="40" alt=""></span>
         <div class="atlas-assistant__title">
           <h2 id="atlas-assistant-title" lang="en">Spadchin</h2>
-          <p>Помощник по атласу Беларуси</p>
+          <p>ИИ-помощник</p>
         </div>
         <button class="atlas-assistant__close" type="button" aria-label="Свернуть чат">
           ${renderIcon(faChevronDown)}
@@ -62,7 +62,7 @@ export function installAssistantChat({ api, getAtlas, token, openAuthModal }) {
       <div class="atlas-assistant__messages" role="log" aria-label="Переписка" tabindex="0">
         <div class="atlas-assistant__greeting">
           <div>
-            <p class="atlas-assistant__message">Привет! Куда отправимся? Спроси про озёра, замки или традиции Беларуси.</p>
+            <p class="atlas-assistant__message">Привет! Я Spadchina 2.0. Чем помочь?</p>
           </div>
         </div>
         <div class="atlas-assistant__typing" hidden>
