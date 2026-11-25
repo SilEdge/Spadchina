@@ -1,3 +1,4 @@
+import { renderRewardIcon } from './reward-icons.js';
 import './data.js';
 import './app.js';
 import { installCatalog, installHomeAtlas, installPlaceQuiz } from './public-atlas.js';
@@ -437,7 +438,7 @@ async function installShop() {
     const grid = main.querySelector('[data-shop-grid]');
     if (!grid) throw new Error('Не найден каталог наград');
     grid.innerHTML = items.map((item) => `<article class="group border border-border bg-card">
-      <div class="grid aspect-[4/3] place-items-center bg-secondary text-6xl" aria-hidden="true">${esc(item.icon)}</div>
+      <div class="grid aspect-[4/3] place-items-center bg-secondary text-6xl text-primary" aria-hidden="true">${renderRewardIcon(item.icon)}</div>
       <div class="p-6"><p class="text-xs font-semibold uppercase tracking-widest text-primary">Награда</p>
       <h3 class="mt-1 min-h-14 font-display text-xl font-bold leading-snug">${esc(item.name)}</h3>
       <div class="mt-5 flex items-center justify-between gap-3"><strong>${esc(item.cost)} баллов</strong>
@@ -468,6 +469,18 @@ async function installShop() {
   } catch (error) { status(main, `Не удалось загрузить награды: ${error.message}`, true); }
 }
 
+const chatTime = new Intl.DateTimeFormat('ru', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+function renderChatMessage(item) {
+  const date = new Date(item.created_at.replace(/^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)$/, '$1T$2Z'));
+  const time = Number.isNaN(date.valueOf()) ? '' : `<time datetime="${date.toISOString()}">${chatTime.format(date)}</time>`;
+  const duelID = Number(item.duel_id);
+  const content = Number.isSafeInteger(duelID) && duelID > 0
+    ? `<span>Приглашение на дуэль</span><a class="backend-chat-duel" href="duels.html#duel-${duelID}">Открыть дуэль</a>`
+    : `<span>${esc(item.text)}</span>`;
+  return `<article class="backend-chat-message ${item.sender === cache.user?.username ? 'backend-chat-mine' : ''}"><b>${esc(item.sender_name || item.sender)}</b>${content}${time}</article>`;
+}
+
 async function installChat() {
   const main = document.querySelector('main'); if (!main || !location.pathname.endsWith('/chat.html')) return;
   const aside = main.querySelector('aside'); const view = main.querySelector('section'); if (!aside || !view) return;
@@ -478,23 +491,49 @@ async function installChat() {
     view.innerHTML = '<div class="grid min-h-full place-items-center p-8 text-center"><div><h1 class="font-display text-2xl font-bold">Личные сообщения</h1><p class="mt-3">Переписка хранится в базе данных и доступна после входа.</p><button class="backend-primary-button mt-5">Войти</button></div></div>';
     view.querySelector('button').onclick = () => openAuthModal(); return;
   }
-  let people = []; let peer = '';
+  let people = []; let peer = ''; let renderedMessages = '';
   aside.innerHTML = '<p class="font-display text-xl font-bold">Участники</p><div class="backend-chat-people mt-5"></div>';
   view.innerHTML = '<header class="border-b border-border p-5"><h1 class="font-display text-xl font-bold">Выберите собеседника</h1></header><div class="backend-chat-messages flex-1 overflow-y-auto p-5" aria-live="polite"></div><form class="flex gap-2 border-t border-border p-4"><input class="flex-1 border border-border bg-background px-4 py-3 text-sm" maxlength="1000" placeholder="Написать сообщение…" required><button class="bg-primary px-5 text-primary-foreground" type="submit">Отправить</button></form>';
   const list = aside.querySelector('.backend-chat-people'); const messages = view.querySelector('.backend-chat-messages');
+  const composer = view.querySelector('form');
+  const input = composer.querySelector('input');
+  const send = composer.querySelector('button');
+  input.disabled = send.disabled = true;
+  const showChatError = (error, requestedPeer) => {
+    if (requestedPeer !== peer) return;
+    if (error.status === 404) {
+      peer = '';
+      input.disabled = send.disabled = true;
+      list.querySelectorAll('[data-username]').forEach((button) => {
+        if (button.dataset.username === requestedPeer) button.remove();
+      });
+      view.querySelector('header h1').textContent = 'Выберите собеседника';
+      messages.replaceChildren();
+    }
+    status(messages, error.message, true);
+  };
   const loadMessages = async () => {
     if (!peer) return;
     const requestedPeer = peer;
     try {
       const items = await api(`/chat/messages?peer=${encodeURIComponent(requestedPeer)}`);
       if (requestedPeer !== peer) return;
+      const markup = items.map(renderChatMessage).join('') || '<p>Начните беседу первым сообщением.</p>';
+      const retry = messages.querySelector('.backend-status');
+      if (renderedMessages === markup) { retry?.remove(); return; }
       const nearBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
-      messages.innerHTML = items.map((item) => `<p class="backend-chat-message ${item.sender === cache.user?.username ? 'backend-chat-mine' : ''}"><b>${esc(item.sender_name || item.sender)}</b><span>${esc(item.text)}</span><time>${esc(item.created_at)}</time></p>`).join('') || '<p>Начните беседу первым сообщением.</p>';
+      messages.innerHTML = renderedMessages = markup;
       if (nearBottom) messages.scrollTop = messages.scrollHeight;
-    } catch (error) { if (requestedPeer === peer) status(messages, error.message, true); }
+    } catch (error) { showChatError(error, requestedPeer); }
   };
   const selectPeer = async (username) => {
+    if (peer !== username) {
+      input.value = '';
+      renderedMessages = '';
+      messages.replaceChildren();
+    }
     peer = username;
+    input.disabled = send.disabled = false;
     list.querySelectorAll('button').forEach((button) => button.classList.toggle('bg-primary', button.dataset.username === peer));
     view.querySelector('header h1').textContent = people.find((person) => person.username === peer)?.name || peer;
     await loadMessages();
@@ -505,15 +544,19 @@ async function installChat() {
     list.innerHTML = people.map((person) => `<button type="button" class="backend-person-button" data-username="${esc(person.username)}"><b>${esc(person.name || person.username)}</b><span>${esc(person.last_message || `${person.points} баллов`)}</span>${person.unread_count ? `<i>${person.unread_count}</i>` : ''}</button>`).join('') || '<p>Пока нет других участников. Пригласите друзей зарегистрироваться.</p>';
     list.querySelectorAll('[data-username]').forEach((button) => button.addEventListener('click', () => selectPeer(button.dataset.username)));
     if (people.length) await selectPeer(people[0].username);
-    view.querySelector('form').addEventListener('submit', async (event) => {
-      event.preventDefault(); if (!peer) return;
-      const input = event.currentTarget.querySelector('input'); const send = event.currentTarget.querySelector('button');
+    composer.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const recipient = peer;
       const message = input.value.trim();
-      if (!message) return;
+      if (!recipient || !message || send.disabled) return;
       send.disabled = true;
-      try { await api('/chat/messages', { method: 'POST', body: JSON.stringify({ to: peer, text: message }) }); input.value = ''; await loadMessages(); }
-      catch (error) { status(view, error.message, true); }
-      finally { send.disabled = false; }
+      try {
+        await api('/chat/messages', { method: 'POST', body: JSON.stringify({ to: recipient, text: message }) });
+        if (peer !== recipient) return;
+        if (input.value.trim() === message) input.value = '';
+        await loadMessages();
+      } catch (error) { showChatError(error, recipient); }
+      finally { if (peer === recipient) send.disabled = false; }
     });
     window.setInterval(loadMessages, 7000);
   } catch (error) { status(aside, `Не удалось загрузить диалоги: ${error.message}`, true); }
@@ -538,7 +581,7 @@ async function installDuelPage() {
       const selected = create.querySelector('#duel-opponent').selectedOptions[0];
       if (selected?.hidden) create.querySelector('#duel-opponent').value = '';
     });
-    create.querySelector('[data-refresh-duels]').onclick = refresh;
+    create.querySelector('[data-refresh-duels]').onclick = () => refresh().catch((error) => status(create, error.message, true));
     create.querySelector('[data-create-duel]').onclick = async () => {
       const opponent = create.querySelector('select').value; if (!opponent) return status(create, 'Выберите соперника.');
       try { await api('/duels', { method: 'POST', body: JSON.stringify({ opponent }) }); await refresh(); }
@@ -549,7 +592,7 @@ async function installDuelPage() {
       const other = incoming ? (duel.challenger_name || duel.challenger) : (duel.opponent_name || duel.opponent);
       const played = incoming ? duel.opponent_score >= 0 : duel.challenger_score >= 0;
       const action = duel.status === 'pending' && incoming ? `<button data-accept="${duel.id}">Принять</button><button data-decline="${duel.id}">Отклонить</button>` : duel.status === 'active' && !played ? `<button data-play-duel="${duel.id}">Играть</button>` : duel.status === 'active' ? '<span>Ожидаем соперника</span>' : '';
-      return `<article class="backend-duel-item"><b>Дуэль с ${esc(other)}</b><span>Статус: ${esc(duel.status)}</span><span>Счёт ${duel.challenger_score < 0 ? '—' : duel.challenger_score} : ${duel.opponent_score < 0 ? '—' : duel.opponent_score}</span>${action}</article>`;
+      return `<article class="backend-duel-item" id="duel-${duel.id}"><b>Дуэль с ${esc(other)}</b><span>${({ pending: 'Ожидает принятия', active: 'В процессе', completed: 'Завершена', declined: 'Отклонена' })[duel.status] || esc(duel.status)}</span><span>Счёт ${duel.challenger_score < 0 ? '—' : duel.challenger_score} : ${duel.opponent_score < 0 ? '—' : duel.opponent_score}</span>${action}</article>`;
     }).join('') : '<p>Пока дуэлей нет. Выберите соперника выше.</p>';
     duelList.querySelectorAll('[data-accept]').forEach((button) => button.onclick = async () => { try { await api(`/duels/${button.dataset.accept}/accept`, { method: 'POST' }); await refresh(); } catch (error) { status(duelList, error.message, true); } });
     duelList.querySelectorAll('[data-decline]').forEach((button) => button.onclick = async () => { try { await api(`/duels/${button.dataset.decline}/decline`, { method: 'POST' }); await refresh(); } catch (error) { status(duelList, error.message, true); } });
@@ -557,8 +600,12 @@ async function installDuelPage() {
       try { await renderDuel(button.dataset.playDuel, duelList); } catch (error) { status(duelList, error.message, true); }
     });
   };
-  try { cache.user = cache.user || await api('/me'); await refresh(); }
-  catch (error) { status(create, `Не удалось загрузить дуэли: ${error.message}`, true); }
+  try {
+    cache.user = cache.user || await api('/me');
+    await refresh();
+    const linkedDuel = /^#duel-\d+$/.test(location.hash) && duelList.querySelector(location.hash);
+    if (linkedDuel) linkedDuel.scrollIntoView({ block: 'center' });
+  } catch (error) { status(create, `Не удалось загрузить дуэли: ${error.message}`, true); }
 }
 
 async function renderDuel(id, target) {
@@ -578,10 +625,12 @@ function runQuestionGame(questions, target, seconds, finish) {
     clearInterval(interval);
     if (index >= questions.length) {
       target.innerHTML = '<div class="backend-game-panel"><h3>Сохраняем результат…</h3></div>';
+      const saving = target.firstElementChild;
       finish(answers).catch((error) => {
+        if (!saving.isConnected) return;
         target.innerHTML = '<div class="backend-game-panel"><h3>Не удалось сохранить результат</h3><button class="backend-primary-button" type="button">Повторить отправку</button></div>';
         status(target.firstElementChild, error.message, true);
-        target.querySelector('button').onclick = () => { target.innerHTML = '<div class="backend-game-panel"><h3>Сохраняем результат…</h3></div>'; finish(answers).catch((retryError) => status(target.firstElementChild, retryError.message, true)); };
+        target.querySelector('button').onclick = draw;
       });
       return;
     }
@@ -614,6 +663,7 @@ function runQuestionGame(questions, target, seconds, finish) {
       controls.querySelector('button').onclick = () => submit([...selected]);
     }
     interval = window.setInterval(() => {
+      if (!panel.isConnected) { clearInterval(interval); return; }
       remaining -= 1;
       panel.querySelector('.backend-timer').textContent = `${remaining} с`;
       if (remaining <= 0) submit([...selected]);
@@ -638,18 +688,36 @@ async function installTeamBattles() {
     partyName.value = cache.user.name || cache.user.username;
     partyName.readOnly = true;
   }
+  const categoryField = form.querySelector('#party-category');
+  const countField = form.querySelector('#party-count');
+  const categoryLimits = new Map();
+  const updateQuestionLimit = () => {
+    countField.max = String(Math.max(5, Math.min(30, categoryLimits.get(categoryField.value) ?? 30)));
+    if (Number(countField.value) > Number(countField.max)) countField.value = countField.max;
+  };
+  categoryField.addEventListener('change', updateQuestionLimit);
+  if (token()) {
+    api('/team-battles/categories').then((categories) => {
+      const available = categories.filter((item) => item.question_count >= 5 && item.category !== 'all');
+      const previous = categoryField.value;
+      categories.forEach((item) => categoryLimits.set(item.category, item.question_count));
+      categoryField.replaceChildren(new Option('Все направления', 'all'),
+        ...available.map((item) => new Option(item.category_label, item.category)));
+      categoryField.value = categoryLimits.has(previous) ? previous : 'all';
+      updateQuestionLimit();
+    }).catch(() => { /* Keep the standard categories if the list is temporarily unavailable. */ });
+  }
   form.addEventListener('submit', async (event) => {
     event.preventDefault(); if (!token()) { openAuthModal(); return; }
     const submit = form.querySelector('button'); submit.disabled = true;
     try {
-      const category = form.querySelector('#party-category').value;
-      const count = Math.min(20, Math.max(5, Number(form.querySelector('#party-count').value) || 5));
-      form.querySelector('#party-count').value = String(count);
+      const category = categoryField.value;
+      const count = Number(countField.value);
       let battle;
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const code = String(100000 + Math.floor(Math.random() * 900000));
         try { battle = await api('/team-battles', { method: 'POST', body: JSON.stringify({ code, category, question_count: count, time_seconds: Number(form.querySelector('#party-time').value) }) }); break; }
-        catch (error) { if (!error.message.includes('already exists')) throw error; }
+        catch (error) { if (error.status !== 409) throw error; }
       }
       if (!battle) throw new Error('Не удалось создать комнату');
       if (battleStorageKey) localStorage.setItem(battleStorageKey, battle.code);
@@ -685,11 +753,36 @@ function showBattleRoom(battle, target) {
   const creator = battle.creator === cache.user?.username;
   target.innerHTML = `<div class="backend-game-panel"><h2>Комната ${esc(battle.code)}</h2><p>Пригласите друзей по коду. ${creator ? 'Начните, когда все подключатся.' : 'Ждём начала от создателя.'}</p><p>${esc(battle.category_label)} · ${battle.questions.length} вопросов · ${battle.time_seconds || 20} с на ответ</p><div class="backend-battle-players"></div>${creator ? '<button class="backend-primary-button" type="button" data-start-battle>Начать батл</button>' : ''}<button class="backend-outline-button" type="button" data-refresh-battle>Обновить комнату</button></div>`;
   showBattlePlayers(battle, target);
-  target.querySelector('[data-refresh-battle]').onclick = async () => { try { showBattleRoom(await api(`/team-battles/${battle.code}`), target); } catch (error) { status(target, error.message, true); } };
-  target.querySelector('[data-start-battle]')?.addEventListener('click', async (event) => {
-    event.currentTarget.disabled = true;
-    try { showBattleRoom(await api(`/team-battles/${battle.code}/start`, { method: 'POST' }), target); }
-    catch (error) { status(target.firstElementChild, error.message, true); event.currentTarget.disabled = false; }
+  const panel = target.firstElementChild;
+  const refreshButton = panel.querySelector('[data-refresh-battle]');
+  let refreshing = false;
+  const refresh = async (manual = false) => {
+    if (!panel.isConnected || refreshing) return;
+    refreshing = true;
+    try {
+      const updated = await api(`/team-battles/${battle.code}`);
+      if (!panel.isConnected) return;
+      if (updated.started) showBattleRoom(updated, target);
+      else showBattlePlayers(updated, target);
+    } catch (error) {
+      if (manual && panel.isConnected) status(panel, error.message, true);
+    } finally { refreshing = false; }
+  };
+  refreshButton.onclick = () => refresh(true);
+  const timer = window.setInterval(() => {
+    if (panel.isConnected) refresh();
+    else window.clearInterval(timer);
+  }, 3000);
+  panel.querySelector('[data-start-battle]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const updated = await api(`/team-battles/${battle.code}/start`, { method: 'POST' });
+      if (panel.isConnected) showBattleRoom(updated, target);
+    } catch (error) {
+      if (panel.isConnected) status(panel, error.message, true);
+      button.disabled = false;
+    }
   });
 }
 
@@ -703,7 +796,7 @@ function playTeamBattle(battle, target) {
 function showBattlePlayers(battle, target) {
   const panel = target.querySelector('.backend-game-panel'); if (!panel) return;
   const list = target.querySelector('.backend-battle-players');
-  if (list) list.innerHTML = `<h3>Участники комнаты</h3>${(battle.participants || []).map((person) => `<p>${esc(person.name || person.username)} · ${person.completed ? `${person.score} очков` : 'ещё отвечает'}</p>`).join('')}`;
+  if (list) list.innerHTML = `<h3>Участники комнаты</h3>${(battle.participants || []).map((person) => `<p>${esc(person.name || person.username)} · ${person.completed ? `${person.score} очков` : battle.started ? 'ещё отвечает' : 'в комнате'}</p>`).join('')}`;
 }
 
 async function initialize() {

@@ -95,6 +95,7 @@ type ChatMessage struct {
 	Text         string `json:"text"`
 	IsRead       bool   `json:"is_read"`
 	CreatedAt    string `json:"created_at"`
+	DuelID       int    `json:"duel_id,omitempty"`
 }
 
 type ChatConversation struct {

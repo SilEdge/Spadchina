@@ -45,16 +45,18 @@ func openDatabase() error {
 	if databasePath == "" {
 		databasePath = "./cultcode.db"
 	}
-	connection, err := sql.Open("sqlite", databasePath)
+	separator := "?"
+	if strings.Contains(databasePath, "?") {
+		separator = "&"
+	}
+	// SQLite applies this PRAGMA per connection, including new pool connections.
+	connection, err := sql.Open("sqlite", databasePath+separator+"_pragma=busy_timeout%3d5000")
 	if err != nil {
 		return err
 	}
 	db = connection
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
-	if _, err = db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		return err
-	}
 	if err = db.Ping(); err != nil {
 		return err
 	}

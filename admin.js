@@ -1,4 +1,5 @@
 import { requestJSON } from './request-json.js';
+import { renderRewardIcon, rewardIcons } from './reward-icons.js';
 
 const root = document.getElementById('admin-root');
 const token = (() => {
@@ -44,15 +45,20 @@ function questionForm() {
     <label>Вопрос<input name="question" maxlength="500" required></label>
     <label>Варианты ответов, по одному в строке<textarea name="options" rows="6" required></textarea></label>
     <label>Номер правильного ответа (первый — 1)<input name="correct" type="number" min="1" max="6" value="1" required></label>
-    <p class="admin-help">От 2 до 6 вариантов. Новый вопрос попадёт в каждый новый баттл подходящего типа и темы.</p>
+    <p class="admin-help">От 2 до 6 вариантов. Вопрос добавится в набор для выбранных типов батлов и темы.</p>
     <div class="admin-actions"><button type="submit">${editing ? 'Сохранить' : 'Добавить'}</button>${editing ? '<button type="button" data-cancel>Отмена</button>' : ''}</div>
   </form>`;
 }
 
 function rewardForm() {
+  const currentIcon = editing?.icon || '🏆';
+  const iconKey = currentIcon.replace(/\uFE0F/g, '');
+  const knownIcon = rewardIcons.some(([key]) => key === iconKey);
+  const iconOptions = rewardIcons.map(([key, label]) => `<option value="${key === iconKey ? esc(currentIcon) : key}">${label}</option>`);
+  if (!knownIcon) iconOptions.push(`<option value="${esc(currentIcon)}">Текущий значок</option>`);
   return `<form class="admin-editor" id="editor"><h2>${editing ? 'Изменить награду' : 'Добавить награду'}</h2>
     <label>Код (латиница, цифры, дефис)<input name="id" pattern="[a-z0-9-]+" maxlength="80" ${editing ? 'disabled' : ''} required></label>
-    <label>Значок<input name="icon" maxlength="20" value="🏆" required></label>
+    <label>Значок<select name="icon">${iconOptions.join('')}</select></label>
     <label>Название<input name="name" maxlength="120" required></label>
     <label>Стоимость, баллов<input name="cost" type="number" min="0" max="1000000" value="100" required></label>
     <p class="admin-help">Полученные пользователями награды нельзя удалить или переоценить.</p>
@@ -136,15 +142,11 @@ function renderList() {
   const list = root.querySelector('.admin-items');
   list.hidden = false;
   if (!items.length) { list.innerHTML = '<p class="admin-help">Пока ничего нет.</p>'; return; }
-  if (section === 'ideas') {
-    list.innerHTML = items.map((item) => `<article class="admin-item admin-idea"><div><strong>${esc(item.name || 'Гость')}</strong><small>${esc(item.email || '')} · ${esc(new Date(item.created_at + 'Z').toLocaleString('ru-RU'))}</small><p>${esc(item.message)}</p></div></article>`).join('');
-    return;
-  }
   list.innerHTML = items.map((item) => {
-    const title = section === 'questions' ? item.question : section === 'rewards' ? `${item.icon || '🏆'} ${item.name || 'Без названия'}` : section === 'users' ? userLabel(item) : item.title;
+    const title = section === 'questions' ? item.question : section === 'rewards' ? (item.name || 'Без названия') : section === 'users' ? userLabel(item) : item.title;
     const meta = section === 'questions' ? `${item.category_label || 'Без темы'} · ${item.mode === 'both' ? 'обычные и командные' : item.mode === 'team' ? 'командные' : 'обычные'} · правильный ответ: ${item.options?.[item.correct] || 'не указан'}`
       : section === 'rewards' ? `${Number(item.cost) || 0} баллов · ${item.id}` : section === 'users' ? `@${item.username || `user-${item.id}`} · ${item.email || 'почта не указана'} · ${item.role === 'admin' ? 'администратор' : 'пользователь'} · ${Number(item.points) || 0} баллов` : `${item.categoryLabel || 'Без темы'} · ${item.difficultyLabel || 'сложность не указана'}`;
-    return `<article class="admin-item"><div><strong>${esc(title)}</strong><small>${esc(meta)}</small></div><div class="admin-actions">
+    return `<article class="admin-item"><div><strong>${section === 'rewards' ? `<span class="admin-reward-icon" aria-hidden="true">${renderRewardIcon(item.icon)}</span> ` : ''}${esc(title)}</strong><small>${esc(meta)}</small></div><div class="admin-actions">
       ${section === 'users' ? `<button type="button" data-profile="${esc(item.id)}">Открыть профиль</button>` : `<button type="button" data-edit="${esc(item.id)}">Изменить</button>`}
       ${section !== 'users' || item.role !== 'admin' ? `<button type="button" data-delete="${esc(item.id)}" class="danger">Удалить</button>` : ''}</div></article>`;
   }).join('');
@@ -157,7 +159,7 @@ async function load() {
   const version = ++loadVersion;
   const requestedSection = section;
   if (section === 'settings') { root.querySelector('.admin-items').innerHTML = ''; return; }
-  const path = { questions: '/admin/questions', rewards: '/admin/rewards', articles: '/admin/articles', users: '/admin/users', ideas: '/admin/suggestions' }[section];
+  const path = { questions: '/admin/questions', rewards: '/admin/rewards', articles: '/admin/articles', users: '/admin/users' }[section];
   const loaded = await api(path);
   if (version !== loadVersion || section !== requestedSection) return;
   items = loaded;
@@ -167,6 +169,7 @@ async function load() {
 
 function renderSection() {
   const editor = root.querySelector('.admin-editor-wrap');
+  root.querySelector('.admin-items').replaceChildren();
   editor.innerHTML = section === 'questions' ? questionForm() : section === 'rewards' ? rewardForm() : section === 'articles' ? articleForm() : '';
   if (section === 'settings') editor.innerHTML = '<form class="admin-editor" id="password-editor"><h2>Сменить пароль</h2><label>Текущий пароль<input name="current" type="password" autocomplete="current-password" required></label><label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="6" maxlength="72" required></label><button type="submit">Сохранить пароль</button></form>';
   editor.querySelector('#password-editor')?.addEventListener('submit', async (event) => {
@@ -179,7 +182,8 @@ function renderSection() {
   if (form) form.onsubmit = save;
   form?.querySelector('[data-cancel]')?.addEventListener('click', () => { editing = null; renderSection(); });
   flash('');
-  load().catch((error) => flash(error.message, true));
+  const requestedSection = section;
+  load().catch((error) => { if (section === requestedSection) flash(error.message, true); });
 }
 
 async function openUserProfile(id) {
@@ -252,19 +256,22 @@ async function save(event) {
     const base = section === 'articles' ? '/admin/articles' : `/admin/${section}`;
     await api(editing ? `${base}/${encodeURIComponent(editing.id)}` : base,
       { method: editing ? 'PUT' : 'POST', body: JSON.stringify(body) });
-    editing = null; renderSection(); flash('Сохранено');
-  } catch (error) { flash(error.message, true); }
+    if (form.isConnected) { editing = null; renderSection(); flash('Сохранено'); }
+  } catch (error) { if (form.isConnected) flash(error.message, true); }
   finally { button.disabled = false; }
 }
 
 async function remove(id) {
   const item = items.find((row) => String(row.id) === String(id));
   if (!confirm(`Удалить «${item?.question || item?.name || item?.title || item?.username}»?`)) return;
+  const requestedSection = section;
   try {
-    const base = section === 'articles' ? '/admin/articles' : `/admin/${section}`;
-    await api(`${base}/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    await load(); flash('Удалено');
-  } catch (error) { flash(error.message, true); }
+    await api(`/admin/${requestedSection}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (section !== requestedSection) return;
+    if (String(editing?.id) === String(id)) { editing = null; renderSection(); }
+    else await load();
+    if (section === requestedSection) flash('Удалено');
+  } catch (error) { if (section === requestedSection) flash(error.message, true); }
 }
 
 async function start() {
@@ -273,7 +280,7 @@ async function start() {
     const user = await api('/me');
     if (user.role !== 'admin') { root.innerHTML = '<h1>Доступ закрыт</h1><p>Панель доступна только администратору.</p>'; return; }
     root.innerHTML = `<p class="admin-eyebrow">Управление проектом</p><h1>Админ-панель</h1>
-      <nav class="admin-nav" aria-label="Разделы панели"><button data-section="questions">Вопросы баттлов</button><button data-section="rewards">Награды</button><button data-section="articles">Статьи</button><button data-section="users">Пользователи</button><button data-section="ideas">Идеи</button><button data-section="settings">Настройки</button></nav>
+      <nav class="admin-nav" aria-label="Разделы панели"><button data-section="questions">Вопросы баттлов</button><button data-section="rewards">Награды</button><button data-section="articles">Статьи</button><button data-section="users">Пользователи</button><button data-section="settings">Настройки</button></nav>
       <p class="admin-feedback" role="status" aria-live="polite"></p><div class="admin-editor-wrap"></div><div class="admin-items"></div>`;
     root.querySelectorAll('[data-section]').forEach((button) => button.onclick = () => { section = button.dataset.section; editing = null; renderSection(); });
     renderSection();
